@@ -12,7 +12,7 @@ const piexif = {
     '1st': {},
     'thumbnail': null
   })),
-  insert: vi.fn((exifStr, dataUrl) => dataUrl),
+  insert: vi.fn((_exifStr: string, dataUrl: string) => dataUrl),
   ImageIFD: { 
     Orientation: 274,
     Make: 271,

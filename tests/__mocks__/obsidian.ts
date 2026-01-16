@@ -2,6 +2,7 @@
  * Mock implementation of the Obsidian module
  * Provides test doubles for all Obsidian API imports
  */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-function-type, import/no-extraneous-dependencies, no-restricted-imports */
 
 import moment from 'moment';
 
@@ -75,7 +76,7 @@ export class Modal {
         contentDiv.style.setProperty(key, value);
       });
     };
-    this.contentEl = contentDiv as HTMLElement & { setCssProps: (props: Record<string, string>) => void };
+    this.contentEl = contentDiv as unknown as HTMLElement & { setCssProps: (props: Record<string, string>) => void };
   }
   
   open() {}
