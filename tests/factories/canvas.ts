@@ -1,5 +1,4 @@
 /* eslint-disable id-length */
-/* eslint-disable no-undef */
 /**
  * Factory functions for creating mock canvas objects
  * Provides testable canvas implementations for image processing tests
@@ -85,7 +84,7 @@ getContext: options.getContext ?? vi.fn((contextType: string) => {
     if (!cached2DContext) {
       cached2DContext = fakeContext2D({ canvas, width, height });
     }
-    return cached2DContext as CanvasRenderingContext2D;
+    return cached2DContext;
   }
   return null;
 }),
@@ -155,7 +154,7 @@ export function fakeContext2D(options: {
         data,
         width: sw,
         height: sh,
-colorSpace: 'srgb' as any
+        colorSpace: 'srgb' as PredefinedColorSpace
       } as ImageData;
     }),
     
@@ -174,18 +173,18 @@ colorSpace: 'srgb' as any
     fillStyle: '#000000',
     strokeStyle: '#000000',
     globalAlpha: 1,
-globalCompositeOperation: 'source-over',
+    globalCompositeOperation: 'source-over',
     lineWidth: 1,
-lineCap: 'butt',
-lineJoin: 'miter',
+    lineCap: 'butt',
+    lineJoin: 'miter',
     miterLimit: 10,
     shadowOffsetX: 0,
     shadowOffsetY: 0,
     shadowBlur: 0,
     shadowColor: 'rgba(0, 0, 0, 0)',
     font: '10px sans-serif',
-textAlign: 'start',
-textBaseline: 'alphabetic',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
     
     // Other methods
     clip: vi.fn(),
@@ -246,11 +245,11 @@ export function createCanvasWithPresetBehavior(scenario: 'smallest-blob' | 'smal
     case 'smallest-blob':
       // Canvas where toBlob produces smaller output
       return fakeCanvas({
-        toBlob: vi.fn((callback, type, quality) => {
+        toBlob: vi.fn((callback: BlobCallback, type?: string, quality?: number) => {
           const bytes = makePngBytes({ w: 50, h: 50 }); // Smaller size
           callback(new Blob([bytes], { type: type || 'image/png' }));
         }),
-        toDataURL: vi.fn((type, quality) => {
+        toDataURL: vi.fn((type?: string, quality?: number) => {
           const bytes = makePngBytes({ w: 100, h: 100 }); // Larger size
           const uint8Array = new Uint8Array(bytes);
           const base64 = btoa(String.fromCharCode(...uint8Array));
@@ -261,11 +260,11 @@ export function createCanvasWithPresetBehavior(scenario: 'smallest-blob' | 'smal
     case 'smallest-dataurl':
       // Canvas where toDataURL produces smaller output
       return fakeCanvas({
-        toBlob: vi.fn((callback, type, quality) => {
+        toBlob: vi.fn((callback: BlobCallback, type?: string, quality?: number) => {
           const bytes = makePngBytes({ w: 100, h: 100 }); // Larger size
           callback(new Blob([bytes], { type: type || 'image/png' }));
         }),
-        toDataURL: vi.fn((type, quality) => {
+        toDataURL: vi.fn((type?: string, quality?: number) => {
           const bytes = makePngBytes({ w: 50, h: 50 }); // Smaller size
           const uint8Array = new Uint8Array(bytes);
           const base64 = btoa(String.fromCharCode(...uint8Array));
@@ -276,7 +275,7 @@ export function createCanvasWithPresetBehavior(scenario: 'smallest-blob' | 'smal
     case 'error':
       // Canvas that fails to encode
       return fakeCanvas({
-        toBlob: vi.fn((callback) => callback(null)),
+        toBlob: vi.fn((callback: BlobCallback) => callback(null)),
         toDataURL: vi.fn(() => 'data:,') // Empty data URL indicates error
       });
       
