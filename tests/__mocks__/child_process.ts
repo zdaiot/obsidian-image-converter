@@ -20,12 +20,8 @@ export class ChildProcess {
 }
 
 export const spawn = vi.fn(() => new ChildProcess());
-// Provide Exit/Close emission helpers for tests if needed
-;(spawn as any).emitExit = (proc: any, code = 0) => proc.emit && proc.emit('exit', code, null);
-;(spawn as any).emitClose = (proc: any, code = 0) => proc.emit && proc.emit('close', code, null);
-// Provide EventEmitter-like interface for listeners that code may expect
-(spawn as any).mockImplementationOnce = (impl: any) => (spawn as any).mockImplementation(impl);
-export const exec = vi.fn((cmd, callback) => {
+
+export const exec = vi.fn((cmd: string, callback?: (error: Error | null, stdout: string, stderr: string) => void) => {
   if (callback) callback(null, '', '');
   return new ChildProcess();
 });
