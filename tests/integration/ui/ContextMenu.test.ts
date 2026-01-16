@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import ImageConverterPlugin from '../../../src/main';
 import { fakeApp, fakeTFile, fakeVault, fakePluginManifest } from '../../factories/obsidian';
@@ -241,10 +242,10 @@ describe('14.7–14.10 ContextMenu caption edit in tables (pipe escaping)', () =
     plugin.supportedImageFormats = { isExcalidrawImage: () => false } as any;
   });
 
-  const countUnescapedPipes = (s: string) => {
+  const countUnescapedPipes = (str: string) => {
     let count = 0;
-    for (let i = 0; i < s.length; i++) {
-      if (s[i] === '|' && (i === 0 || s[i - 1] !== '\\')) count++;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '|' && (i === 0 || str[i - 1] !== '\\')) count++;
     }
     return count;
   };
