@@ -64,10 +64,13 @@ export function makePngBytes(options: {
  * @param options - Configuration for the JPEG
  * @returns ArrayBuffer containing JPEG data
  */
+// EXIF values can be numbers, strings, rationals (tuple), or arrays thereof
+type ExifValue = number | string | [number, number] | number[] | string[] | undefined;
+
 export function makeJpegBytes(options: {
   w?: number;
   h?: number;
-  exif?: Record<string, any>;
+  exif?: Record<string, ExifValue>;
   width?: number;
   height?: number;
 } = {}): ArrayBuffer {
