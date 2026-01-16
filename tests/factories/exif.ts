@@ -18,12 +18,15 @@ const TAGS = {
   Copyright: 33432,
 };
 
+// EXIF values can be numbers, strings, rationals (tuple), or arrays thereof
+type ExifValue = number | string | [number, number] | number[] | string[] | undefined;
+
 export type ExifDictLike = {
-  '0th': Record<number, any>;
-  'Exif': Record<number, any>;
-  'GPS': Record<number, any>;
-  'Interop': Record<number, any>;
-  '1st': Record<number, any>;
+  '0th': Record<number, ExifValue>;
+  'Exif': Record<number, ExifValue>;
+  'GPS': Record<number, ExifValue>;
+  'Interop': Record<number, ExifValue>;
+  '1st': Record<number, ExifValue>;
   'thumbnail': null | Uint8Array;
 };
 
@@ -40,7 +43,7 @@ export function exifFrom(properties: {
   Software?: string;
   Artist?: string;
   Copyright?: string;
-  [key: string]: any;
+  [key: string]: ExifValue;
 }): ExifDictLike {
   const exif: ExifDictLike = {
     '0th': {},
