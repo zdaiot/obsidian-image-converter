@@ -3,9 +3,10 @@
  */
 
 import { Plugin } from 'obsidian';
+import type { ImageConverterSettings } from '../../src/ImageConverterSettings';
 
 export default class ImageConverterPlugin extends Plugin {
-  settings: any = {};
+  settings: Partial<ImageConverterSettings> = {};
 
   async loadSettings() {
     this.settings = {};
