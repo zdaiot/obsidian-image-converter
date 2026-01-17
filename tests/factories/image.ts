@@ -59,6 +59,8 @@ export function makePngBytes(options: {
   return buffer;
 }
 
+import type { ExifDictLike } from './exif';
+
 /**
  * Create a minimal JPEG buffer with optional EXIF data
  * @param options - Configuration for the JPEG
@@ -67,10 +69,12 @@ export function makePngBytes(options: {
 // EXIF values can be numbers, strings, rationals (tuple), or arrays thereof
 type ExifValue = number | string | [number, number] | number[] | string[] | undefined;
 
+type ExifInput = Record<string, ExifValue> | ExifDictLike;
+
 export function makeJpegBytes(options: {
   w?: number;
   h?: number;
-  exif?: Record<string, ExifValue>;
+  exif?: ExifInput;
   width?: number;
   height?: number;
 } = {}): ArrayBuffer {

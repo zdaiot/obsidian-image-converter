@@ -1,12 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
+import { type App, type Vault } from 'obsidian';
 import { LinkFormatter } from '../../../src/LinkFormatter';
-import { type LinkFormatPreset, type PathFormat } from '../../../src/LinkFormatSettings';
+import { type LinkFormatPreset } from '../../../src/LinkFormatSettings';
 import { fakeApp, fakeTFile, fakeVault } from '../../factories/obsidian';
 
-function makeAppWithFile(path: string) {
+function makeAppWithFile(path: string): { app: App; file: ReturnType<typeof fakeTFile> } {
   const file = fakeTFile({ path });
-  const app = fakeApp({ vault: fakeVault({ files: [file] }) as any }) as any;
-  (app.vault as any).getResourcePath = vi.fn(() => 'blob://mock');
+  const vault = {
+    ...fakeVault({ files: [file] }),
+    getResourcePath: vi.fn(() => 'blob://mock')
+  } as Vault;
+  const app = fakeApp({ vault }) as App;
   return { app, file };
 }
 
@@ -21,7 +25,7 @@ describe('LinkFormatSettings → LinkFormatter mapping', () => {
       prependCurrentDir: false,
       hideFolders: false
     };
-    const out = await formatter.formatLink(file.path, wikilinkPreset.linkFormat, wikilinkPreset.pathFormat as PathFormat, null, null);
+    const out = await formatter.formatLink(file.path, wikilinkPreset.linkFormat, wikilinkPreset.pathFormat, null, null);
     expect(out).toBe('![[pic.png]]');
   });
 
@@ -35,7 +39,7 @@ describe('LinkFormatSettings → LinkFormatter mapping', () => {
       prependCurrentDir: false,
       hideFolders: false
     };
-    const out = await formatter.formatLink(file.path, preset.linkFormat, preset.pathFormat as PathFormat, null, null);
+    const out = await formatter.formatLink(file.path, preset.linkFormat, preset.pathFormat, null, null);
     expect(out).toBe('![](/img/pic.png)');
   });
 
@@ -66,7 +70,7 @@ describe('LinkFormatSettings → LinkFormatter mapping', () => {
     const { app } = makeAppWithFile('a/My File(1)#v2.png');
     const formatter = new LinkFormatter(app);
     // Adjust filename in vault to include spaces/special chars
-    (app.vault.getAbstractFileByPath as any) = vi.fn(() => fakeTFile({ path: 'a/My File(1)#v2.png' }));
+    app.vault.getAbstractFileByPath = vi.fn(() => fakeTFile({ path: 'a/My File(1)#v2.png' }));
     const out = await formatter.formatLink('a/My File(1)#v2.png', 'markdown', 'absolute', null, null);
     expect(out).toBe('![](/a/My%20File(1)#v2.png)');
   });
