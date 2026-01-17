@@ -1,19 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { type App } from 'obsidian';
 import { LinkFormatter } from '../../../src/LinkFormatter';
 import type { NonDestructiveResizePreset } from '../../../src/NonDestructiveResizeSettings';
-import { fakeApp, fakeTFile, fakeVault } from '../../factories/obsidian';
+import { fakeAppWithResourcePath, fakeTFile } from '../../factories/obsidian';
 import { setMockImageSize } from '../../helpers/test-setup';
 
-function makeFormatterForImage(path: string, width: number, height: number) {
+function makeFormatterForImage(path: string, width: number, height: number): { app: App; file: ReturnType<typeof fakeTFile>; formatter: LinkFormatter } {
   const file = fakeTFile({ path });
-  const app = fakeApp({ vault: fakeVault({ files: [file] }) as any }) as any;
-  (app.vault as any).getResourcePath = vi.fn(() => 'app://mock');
-  const formatter = new LinkFormatter(app as any);
+  const { app } = fakeAppWithResourcePath({
+    files: [file],
+    resourcePath: () => 'app://mock'
+  }) as { app: App };
+  const formatter = new LinkFormatter(app);
   setMockImageSize(width, height);
   return { app, file, formatter };
 }
 
-async function params(preset: NonDestructiveResizePreset, img: string, width: number, height: number) {
+async function params(preset: NonDestructiveResizePreset, img: string, width: number, height: number): Promise<string> {
   const { formatter, file } = makeFormatterForImage(img, width, height);
   const out = await formatter.formatLink(file.path, 'wikilink', 'absolute', null, preset);
   // ![[/path|WxH]]
@@ -24,7 +27,7 @@ async function params(preset: NonDestructiveResizePreset, img: string, width: nu
 describe('Non-destructive resize parameter computation (via LinkFormatter)', () => {
   beforeEach(() => {
     // Default editor width for editor-max-width tests
-    vi.spyOn(LinkFormatter.prototype as any, 'getEditorMaxWidth').mockReturnValue(800);
+    vi.spyOn(LinkFormatter.prototype, 'getEditorMaxWidth').mockReturnValue(800);
   });
 
   it('20.1 Width (pixels) maintain aspect: 1000x800 → |500x400', async () => {
@@ -170,7 +173,7 @@ describe('Non-destructive resize parameter computation (via LinkFormatter)', () 
   });
 
   it('20.10 Respect editor constraint clamps width to editor and recomputes height', async () => {
-    vi.spyOn(LinkFormatter.prototype as any, 'getEditorMaxWidth').mockReturnValue(800);
+    vi.spyOn(LinkFormatter.prototype, 'getEditorMaxWidth').mockReturnValue(800);
     const preset: NonDestructiveResizePreset = {
       name: 'W1200 clamp to editor', resizeDimension: 'width', width: 1200,
       resizeScaleMode: 'auto', respectEditorMaxWidth: true,

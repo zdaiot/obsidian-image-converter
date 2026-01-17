@@ -1,19 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MarkdownView } from 'obsidian';
+import { MarkdownView, type App, type Workspace, type WorkspaceLeaf, type TFile } from 'obsidian';
 import { LinkFormatter } from '../../../src/LinkFormatter';
 import type { LinkFormat, PathFormat } from '../../../src/LinkFormatSettings';
-import { fakeApp, fakeTFile, fakeVault } from '../../factories/obsidian';
+import type { NonDestructiveResizePreset } from '../../../src/NonDestructiveResizeSettings';
+import { fakeAppWithResourcePath, fakeApp, fakeTFile } from '../../factories/obsidian';
 import { setMockImageSize } from '../../helpers/test-setup';
 import { IMAGE_FILENAMES } from '../../helpers/filename-corpus';
 
-function makeFormatterWithFiles(paths: string[]) {
+function makeFormatterWithFiles(paths: string[]): { app: ReturnType<typeof fakeAppWithResourcePath>['app']; files: TFile[]; formatter: LinkFormatter } {
   const files = paths.map((pathStr) => fakeTFile({ path: pathStr, name: pathStr.split('/').pop()! }));
-  const app = fakeApp({
-    vault: fakeVault({ files }) as any,
-    workspace: { getActiveFile: vi.fn(() => null) } as any,
-  }) as any;
-  // Provide getResourcePath used by LinkFormatter.getImageDimensions
-  (app.vault as any).getResourcePath = vi.fn((tfile: any) => `app://local/${tfile.path}`);
+  const { app } = fakeAppWithResourcePath({ files }) as { app: App };
+  const workspace: Workspace = {
+    ...(fakeApp().workspace as Workspace),
+    getActiveFile: vi.fn(() => null)
+  } as unknown as Workspace;
+  app.workspace = workspace;
   return { app, files, formatter: new LinkFormatter(app) };
 }
 
@@ -35,8 +36,8 @@ describe('LinkFormatter — core behaviors', () => {
     const { files, formatter } = makeFormatterWithFiles(['images/pic.png']);
     const result = await formatter.formatLink(
       files[0].path,
-      'wikilink' as LinkFormat,
-      'absolute' as PathFormat,
+      'wikilink',
+      'absolute',
       null,
       null
     );
@@ -108,7 +109,7 @@ describe('LinkFormatter — core behaviors', () => {
 
   it('resizes in wikilink appends |WxH', async () => {
     const { formatter, files } = makeFormatterWithFiles(['img/pic.png']);
-    const preset = {
+    const preset: NonDestructiveResizePreset = {
       name: 'Width 50',
       resizeDimension: 'width',
       width: 50,
@@ -116,15 +117,15 @@ describe('LinkFormatter — core behaviors', () => {
       respectEditorMaxWidth: false,
       maintainAspectRatio: true,
       resizeUnits: 'pixels',
-    } as const;
+    };
     setMockImageSize(100, 100);
-    const out = await formatter.formatLink(files[0].path, 'wikilink', 'absolute', null, preset as any);
+    const out = await formatter.formatLink(files[0].path, 'wikilink', 'absolute', null, preset);
     expect(out).toBe('![[/img/pic.png|50x50]]');
   });
 
   it('resizes in markdown uses alt text equal to |WxH', async () => {
     const { formatter, files } = makeFormatterWithFiles(['img/pic.png']);
-    const preset = {
+    const preset: NonDestructiveResizePreset = {
       name: 'Width 40',
       resizeDimension: 'width',
       width: 40,
@@ -132,9 +133,9 @@ describe('LinkFormatter — core behaviors', () => {
       respectEditorMaxWidth: false,
       maintainAspectRatio: true,
       resizeUnits: 'pixels',
-    } as const;
+    };
     setMockImageSize(100, 100);
-    const out = await formatter.formatLink(files[0].path, 'markdown', 'absolute', null, preset as any);
+    const out = await formatter.formatLink(files[0].path, 'markdown', 'absolute', null, preset);
     expect(out).toBe('![|40x40](/img/pic.png)');
   });
 
@@ -207,7 +208,7 @@ describe('LinkFormatter — corpus coverage', () => {
   it.each(paths)('wikilink relative uses ./ for same folder: %s', async (vaultPath) => {
     const note = fakeTFile({ path: 'Notes/note.md' });
     const { formatter } = makeFormatterWithFiles(paths);
-    const out = await formatter.formatLink(vaultPath, 'wikilink', 'relative', note as any, null);
+    const out = await formatter.formatLink(vaultPath, 'wikilink', 'relative', note, null);
     const filename = vaultPath.split('/').pop()!;
     expect(out).toBe(`![[./${filename}]]`);
   });
@@ -215,7 +216,7 @@ describe('LinkFormatter — corpus coverage', () => {
   it.each(paths)('markdown relative uses ./ and encodes only spaces: %s', async (vaultPath) => {
     const note = fakeTFile({ path: 'Notes/note.md' });
     const { formatter } = makeFormatterWithFiles(paths);
-    const out = await formatter.formatLink(vaultPath, 'markdown', 'relative', note as any, null);
+    const out = await formatter.formatLink(vaultPath, 'markdown', 'relative', note, null);
     const filename = vaultPath.split('/').pop()!;
     expect(out).toBe(`![](${encodeSpacesOnly(`./${filename}`)})`);
   });
@@ -228,17 +229,25 @@ describe('LinkFormatter — corpus coverage', () => {
 describe('LinkFormatter — Platform-specific (Phase 9)', () => {
   it('25.6 Desktop-specific: getEditorMaxWidth reads CodeMirror .cm-line width when available', () => {
     const file = fakeTFile({ path: 'img/p.png', name: 'p.png', extension: 'png' });
-    const app = fakeApp({ vault: fakeVault({ files: [file] }) as any }) as any;
+    const { app } = fakeAppWithResourcePath({ files: [file] }) as { app: App };
 
     // LinkFormatter.getEditorMaxWidth uses workspace.getMostRecentLeaf().view.editor.cm
-    const view = new (MarkdownView as any)();
-    const cmLine = { clientWidth: 420 } as any;
+    const leafPlaceholder = {} as WorkspaceLeaf;
+    const view = new MarkdownView(leafPlaceholder);
+    const cmLine = { clientWidth: 420 };
     const querySelector = vi.fn(() => cmLine);
-    (view as any).editor = { cm: { contentDOM: { querySelector } } };
-    (app.workspace.getMostRecentLeaf as any) = vi.fn(() => ({ view }));
+    view.editor = { cm: { contentDOM: { querySelector } } } as unknown as MarkdownView['editor'];
 
-    const formatter = new LinkFormatter(app as any);
-    const width = (formatter as any).getEditorMaxWidth();
+    const leaf = { view } as unknown as WorkspaceLeaf;
+    const workspace: Workspace = {
+      ...(fakeApp().workspace as Workspace),
+      getMostRecentLeaf: vi.fn(() => leaf)
+    } as unknown as Workspace;
+
+    app.workspace = workspace;
+
+    const formatter = new LinkFormatter(app);
+    const width = formatter.getEditorMaxWidth();
 
     expect(width).toBe(420);
     expect(querySelector).toHaveBeenCalledWith('.cm-line');
@@ -246,15 +255,23 @@ describe('LinkFormatter — Platform-specific (Phase 9)', () => {
 
   it('25.6 Desktop-specific: getEditorMaxWidth falls back to 800 when cm-line is missing', () => {
     const file = fakeTFile({ path: 'img/p.png', name: 'p.png', extension: 'png' });
-    const app = fakeApp({ vault: fakeVault({ files: [file] }) as any }) as any;
+    const { app } = fakeAppWithResourcePath({ files: [file] }) as { app: App };
 
-    const view = new (MarkdownView as any)();
+    const leafPlaceholder = {} as WorkspaceLeaf;
+    const view = new MarkdownView(leafPlaceholder);
     const querySelector = vi.fn(() => null);
-    (view as any).editor = { cm: { contentDOM: { querySelector } } };
-    (app.workspace.getMostRecentLeaf as any) = vi.fn(() => ({ view }));
+    view.editor = { cm: { contentDOM: { querySelector } } } as unknown as MarkdownView['editor'];
 
-    const formatter = new LinkFormatter(app as any);
-    const width = (formatter as any).getEditorMaxWidth();
+    const leaf = { view } as unknown as WorkspaceLeaf;
+    const workspace: Workspace = {
+      ...(fakeApp().workspace as Workspace),
+      getMostRecentLeaf: vi.fn(() => leaf)
+    } as unknown as Workspace;
+
+    app.workspace = workspace;
+
+    const formatter = new LinkFormatter(app);
+    const width = formatter.getEditorMaxWidth();
 
     expect(width).toBe(800);
   });

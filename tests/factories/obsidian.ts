@@ -459,3 +459,18 @@ export function fakeApp(options: {
     tryTrigger: vi.fn()
   } as Partial<App>;
 }
+
+export function fakeAppWithResourcePath(options: {
+  files?: TFile[];
+  resourcePath?: (file: TFile) => string;
+  workspace?: Partial<Workspace>;
+} = {}): { app: App; vault: Vault; files: TFile[] } {
+  const files = options.files ?? [];
+  const vault = {
+    ...fakeVault({ files }),
+    getResourcePath: vi.fn(options.resourcePath ?? ((file: TFile) => `app://local/${file.path}`))
+  } as Vault;
+  const workspace = (options.workspace ?? fakeWorkspace()) as Workspace;
+  const app = fakeApp({ vault, workspace }) as App;
+  return { app, vault, files };
+}

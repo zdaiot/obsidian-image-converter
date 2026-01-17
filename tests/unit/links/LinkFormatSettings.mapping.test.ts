@@ -1,16 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { type App, type Vault } from 'obsidian';
 import { LinkFormatter } from '../../../src/LinkFormatter';
 import { type LinkFormatPreset } from '../../../src/LinkFormatSettings';
-import { fakeApp, fakeTFile, fakeVault } from '../../factories/obsidian';
+import { fakeAppWithResourcePath, fakeTFile } from '../../factories/obsidian';
 
-function makeAppWithFile(path: string): { app: App; file: ReturnType<typeof fakeTFile> } {
+function makeAppWithFile(path: string): { app: ReturnType<typeof fakeAppWithResourcePath>['app']; file: ReturnType<typeof fakeTFile> } {
   const file = fakeTFile({ path });
-  const vault = {
-    ...fakeVault({ files: [file] }),
-    getResourcePath: vi.fn(() => 'blob://mock')
-  } as Vault;
-  const app = fakeApp({ vault }) as App;
+  const { app } = fakeAppWithResourcePath({
+    files: [file],
+    resourcePath: () => 'blob://mock'
+  });
   return { app, file };
 }
 
