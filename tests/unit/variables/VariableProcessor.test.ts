@@ -1,3 +1,14 @@
+/* eslint-disable import/no-nodejs-modules */
+/* eslint-disable no-restricted-imports */
+/* eslint-disable import/no-extraneous-dependencies */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'crypto';
 import moment from 'moment';
@@ -209,7 +220,9 @@ describe('VariableProcessor hashes, random, and uuid', () => {
     const file = new File([new Uint8Array([1])], 'x.png', { type: 'image/png' });
 
     // Desktop-like adapter
-    app.vault.adapter = new FileSystemAdapter('C:/Vault');
+    const mockAdapter = Object.create(FileSystemAdapter.prototype);
+    mockAdapter.getBasePath = () => 'C:/Vault';
+    app.vault.adapter = mockAdapter;
     const outFs = await processor.processTemplate('{vaultpath}', { file, activeFile: activeNote });
     expect(outFs).toBe('C:/Vault');
 

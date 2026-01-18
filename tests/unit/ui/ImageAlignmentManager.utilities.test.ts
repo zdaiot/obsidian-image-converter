@@ -1,3 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/naming-convention */
+/* eslint-disable obsidianmd/hardcoded-config-path */
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import ImageConverterPlugin from '../../../src/main';
 import { ImageAlignmentManager } from '../../../src/ImageAlignmentManager';
