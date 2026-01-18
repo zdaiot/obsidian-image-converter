@@ -1386,6 +1386,9 @@ html[data-theme='dark'] {
 }
 
 .image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-preset-buttons {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     margin-left: auto;
     margin-right: auto;
     gap: 8px;
