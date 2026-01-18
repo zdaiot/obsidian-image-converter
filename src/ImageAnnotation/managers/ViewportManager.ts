@@ -217,7 +217,6 @@ export class ViewportManager {
 
     setupResizable(): void {
         this.resizeHandle = this.modalEl.createDiv('modal-resize-handle');
-        this.resizeHandle.addClass('resize-grip-icon');
 
         // Arrow functions preserve type inference for registerDomEvent's expected callback signature
         this.componentContainer.registerDomEvent(this.resizeHandle, 'mousedown', (e: MouseEvent) => { this.startResize(e); });
