@@ -2834,7 +2834,10 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         addLine(`Format: ${preset.outputFormat}`);
 
         if (preset.outputFormat !== "NONE") {
-            addLine(`Quality: ${preset.quality}`);
+            // Only show quality for formats that use it (not AVIF - it uses CRF instead)
+            if (preset.outputFormat !== "AVIF") {
+                addLine(`Quality: ${preset.quality}`);
+            }
             if (preset.outputFormat === "PNG") {
                 addLine(`Color Depth: ${preset.colorDepth}`);
             }
