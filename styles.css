@@ -22,6 +22,8 @@
 	/* Occupy full height */
 	overflow: auto;
 	/* Enable scrolling if content overflows */
+	scrollbar-gutter: stable;
+	/* Reserve space for scrollbar to prevent content jumping when it appears/disappears */
 }
 
 /*
