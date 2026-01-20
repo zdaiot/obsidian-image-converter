@@ -2273,6 +2273,37 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                 return fragment;
             };
 
+            let encoderDetectionButton: ButtonComponent | undefined;
+
+            const defaultEncoderDesc = "Detect and validate working AV1 encoder by running a test encode. This ensures hardware encoders are actually available on your system.";
+            const defaultCrfDesc = "Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see the specific range.";
+
+            const resetEncoderUi = (encoderDetectionSetting: Setting, crfSetting: Setting, presetSetting: Setting) => {
+                encoderDetectionSetting.setDesc(defaultEncoderDesc);
+                encoderDetectionSetting.settingEl.removeClass("image-converter-encoder-detected");
+                encoderDetectionButton?.buttonEl?.removeClass("image-converter-encoder-detected");
+
+                crfSetting.setDesc(defaultCrfDesc);
+                crfSetting.settingEl.removeClass("image-converter-encoder-detected");
+
+                presetSetting.settingEl.show();
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical description
+                presetSetting.setDesc("Encoding preset (speed vs. compression).");
+
+                const dropdown = presetSetting.controlEl.querySelector('select');
+                if (dropdown) {
+                    dropdown.innerHTML = '';
+                    const defaultPresets = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow', 'placebo'];
+                    defaultPresets.forEach(presetName => {
+                        const option = document.createElement('option');
+                        option.value = presetName;
+                        option.text = presetName;
+                        dropdown.appendChild(option);
+                    });
+                    dropdown.value = preset.ffmpegPreset || 'medium';
+                }
+            };
+
             const executablePathSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name
                 .setName("FFmpeg executable path 🛈")
@@ -2295,10 +2326,19 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                                 }
 
                                 const normalizedPath = normalizeExecutablePath(detectedPath);
+                                const previousPath = preset.ffmpegExecutablePath || "";
                                 preset.ffmpegExecutablePath = normalizedPath;
                                 this.plugin.settings.ffmpegExecutablePath = normalizedPath;
                                 if (this.plugin.settings.singleImageModalSettings) {
                                     this.plugin.settings.singleImageModalSettings.ffmpegExecutablePath = normalizedPath;
+                                }
+                                if (normalizedPath !== previousPath) {
+                                    preset.detectedEncoder = undefined;
+                                    this.plugin.settings.detectedEncoder = undefined;
+                                    if (this.plugin.settings.singleImageModalSettings) {
+                                        this.plugin.settings.singleImageModalSettings.detectedEncoder = undefined;
+                                    }
+                                    resetEncoderUi(encoderDetectionSetting, crfSetting, presetSetting);
                                 }
                                 void this.plugin.saveSettings();
 
@@ -2319,10 +2359,19 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                     text.setValue(preset.ffmpegExecutablePath || "")
                         .onChange(value => {
                             const normalizedPath = normalizeExecutablePath(value);
+                            const previousPath = preset.ffmpegExecutablePath || "";
                             preset.ffmpegExecutablePath = normalizedPath;
                             this.plugin.settings.ffmpegExecutablePath = normalizedPath;
                             if (this.plugin.settings.singleImageModalSettings) {
                                 this.plugin.settings.singleImageModalSettings.ffmpegExecutablePath = normalizedPath;
+                            }
+                            if (normalizedPath !== previousPath) {
+                                preset.detectedEncoder = undefined;
+                                this.plugin.settings.detectedEncoder = undefined;
+                                if (this.plugin.settings.singleImageModalSettings) {
+                                    this.plugin.settings.singleImageModalSettings.detectedEncoder = undefined;
+                                }
+                                resetEncoderUi(encoderDetectionSetting, crfSetting, presetSetting);
                             }
                             if (normalizedPath !== value) {
                                 text.setValue(normalizedPath);
@@ -2334,11 +2383,9 @@ export class ImageConverterSettingTab extends PluginSettingTab {
             outputFormatSetting.settingEl.insertAdjacentElement("afterend", executablePathSetting.settingEl);
 
             // Add encoder detection button
-            let encoderDetectionButton: ButtonComponent | undefined;
             const encoderDetectionSetting = new Setting(containerEl)
                 .setName("Encoder detection")
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: AV1
-                .setDesc("Detect and validate working AV1 encoder by running a test encode. This ensures hardware encoders are actually available on your system.")
+                .setDesc(defaultEncoderDesc)
                 .setClass("image-converter-encoder-detection")
                 .addButton(button => {
                     encoderDetectionButton = button;
@@ -2451,30 +2498,9 @@ export class ImageConverterSettingTab extends PluginSettingTab {
 
                                     // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: AV1, FFmpeg
                                     new Notice("No working AV1 encoder found. Install FFmpeg with AV1 support.", 5000);
-                                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: FFmpeg, libaom-av1, libsvtav1
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case
                                     encoderDetectionSetting.setDesc("No working encoder found. Install FFmpeg with libaom-av1, libsvtav1, or ensure hardware drivers are installed.");
-                                    encoderDetectionSetting.settingEl.removeClass("image-converter-encoder-detected");
-                                    encoderDetectionButton?.buttonEl?.removeClass("image-converter-encoder-detected");
-                                    crfSetting.settingEl.removeClass("image-converter-encoder-detected");
-                                    
-                                    // Reset to default visibility and description when no encoder found
-                                    presetSetting.settingEl.show();
-                                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical description
-                                    presetSetting.setDesc("Encoding preset (speed vs. compression).");
-                                    
-                                    // Restore default preset options (libaom-av1 presets as default)
-                                    const dropdown = presetSetting.controlEl.querySelector('select');
-                                    if (dropdown) {
-                                        dropdown.innerHTML = '';
-                                        const defaultPresets = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow', 'placebo'];
-                                        defaultPresets.forEach(presetName => {
-                                            const option = document.createElement('option');
-                                            option.value = presetName;
-                                            option.text = presetName;
-                                            dropdown.appendChild(option);
-                                        });
-                                        dropdown.value = preset.ffmpegPreset || 'medium';
-                                    }
+                                    resetEncoderUi(encoderDetectionSetting, crfSetting, presetSetting);
                                 }
                             } catch (error) {
                                 console.error("Encoder detection error:", error);
@@ -2490,8 +2516,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
             const crfSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name and acronym
                 .setName("FFmpeg CRF")
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Button label includes acronym
-                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see the specific range.")
+                .setDesc(defaultCrfDesc)
                 .setClass("image-converter-ffmpeg-crf")
                 .addText((text) => { // Keep as TextComponent for numeric input
                     text.setValue(preset.ffmpegCrf?.toString() || "")

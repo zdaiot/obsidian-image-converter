@@ -35,6 +35,7 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     processor = new ImageProcessor(supportedFormats);
     (fs.readFile as any).mockReset();
     (fs.unlink as any).mockReset();
+    (ImageProcessor as any).encoderDetectionCache.clear();
   });
 
   it('1.35 [I] Happy path: detects encoder, uses -b:v 0 and -frames:v 1, reads temp file, deletes it', async () => {
@@ -328,6 +329,104 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
 
     expect(new Uint8Array(resultFail).byteLength).toBe(inputBytes.byteLength);
     // unlink may be called in close handler on error; at least ensure no crash
+  });
+
+  it('1.46 [I] Hardware encoder failure: falls back to software encoder and retries conversion', async () => {
+    // Arrange
+    // eslint-disable-next-line id-length
+    const inputBytes = makePngBytes({ w: 32, h: 32 });
+    const inputBlob = makeImageBlob(inputBytes, 'image/png');
+
+    const avifData = new Uint8Array([9, 8, 7]);
+    (fs.readFile as any).mockResolvedValue(Buffer.from(avifData));
+    (fs.unlink as any).mockResolvedValue(undefined);
+
+    const { spawn } = await import('child_process');
+    let spawnCallCount = 0;
+
+    (spawn as any).mockImplementation(() => {
+      spawnCallCount++;
+      const proc = new EventEmitter() as any;
+      proc.stdin = { write: vi.fn(), end: vi.fn() };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+
+      if (spawnCallCount === 1) {
+        // Encoder list: includes hardware + software
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D av1_nvenc NVIDIA\nV....D libsvtav1 SVT-AV1'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else if (spawnCallCount === 2) {
+        // Encoder validation for av1_nvenc succeeds
+        setTimeout(() => {
+          proc.stderr.emit('data', Buffer.from('frame=    1 fps=0.0 q=0.0 Lsize=       0kB'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else if (spawnCallCount === 3) {
+        // Hardware conversion fails
+        setTimeout(() => {
+          proc.stderr.emit('data', Buffer.from('No NVENC capable devices'));
+          proc.emit('close', 1, null);
+        }, 0);
+      } else if (spawnCallCount === 4) {
+        // Software detection list
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D libsvtav1 SVT-AV1'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else {
+        // Software conversion succeeds
+        setTimeout(() => {
+          proc.emit('close', 0, null);
+          proc.emit('exit', 0, null);
+        }, 0);
+      }
+      return proc;
+    });
+
+    // Act
+    const result = await processor.processImage(
+      inputBlob,
+      'AVIF',
+      1.0,
+      1.0,
+      'None',
+      0,
+      0,
+      0,
+      'Auto',
+      true,
+      {
+        name: 'test',
+        outputFormat: 'AVIF',
+        ffmpegExecutablePath: '/usr/bin/ffmpeg',
+        ffmpegCrf: 23,
+        ffmpegPreset: 'medium',
+        quality: 1,
+        colorDepth: 1,
+        resizeMode: 'None',
+        desiredWidth: 0,
+        desiredHeight: 0,
+        desiredLongestEdge: 0,
+        enlargeOrReduce: 'Auto',
+        allowLargerFiles: true,
+        skipConversionPatterns: ''
+      }
+    );
+
+    // Assert
+    const { calls } = (spawn as any).mock;
+    expect(calls.length).toBe(5);
+
+    const [, , hardwareConversion] = calls as [string, string[]][];
+    expect(hardwareConversion[1]).toContain('av1_nvenc');
+
+    const softwareConversion = calls[4] as [string, string[]];
+    expect(softwareConversion[1]).toContain('libsvtav1');
+
+    const out = new Uint8Array(result);
+    expect(out).toEqual(avifData);
   });
 
   it('27.3 [I] Argument safety: spawn receives args array and no shell with path spaces', async () => {

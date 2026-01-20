@@ -522,3 +522,112 @@ describe('Settings preset management (11.3, 11.4, 11.5)', () => {
     expect(saveSpy).toHaveBeenCalled();
   });
 });
+
+// -----------------------------
+// 11.13–11.14 Encoder settings behavior
+// -----------------------------
+
+describe('Settings encoder UI and cache invalidation (11.13, 11.14)', () => {
+  let app: App;
+  let plugin: ImageConverterPlugin;
+  let tab: ImageConverterSettingTab;
+
+  beforeEach(async () => {
+    app = makeAppWithStorage();
+    plugin = new ImageConverterPlugin(app, { id: 'image-converter' } as any);
+    vi.spyOn(plugin as any, 'loadData').mockResolvedValue(undefined);
+    await plugin.loadSettings();
+    tab = new ImageConverterSettingTab(app, plugin);
+  });
+
+  it('11.13 Encoder UI rehydrates from cached preset value', async () => {
+    plugin.settings.conversionPresets.push({
+      name: 'AVIF cached',
+      outputFormat: 'AVIF',
+      quality: 80,
+      colorDepth: 1,
+      resizeMode: 'None',
+      desiredWidth: 0,
+      desiredHeight: 0,
+      desiredLongestEdge: 0,
+      enlargeOrReduce: 'Auto',
+      allowLargerFiles: true,
+      skipConversionPatterns: '',
+      ffmpegExecutablePath: '/usr/bin/ffmpeg',
+      ffmpegCrf: 30,
+      ffmpegPreset: 'medium',
+      detectedEncoder: 'libaom-av1'
+    } as ConversionPreset);
+
+    tab.activeTab = 'conversion';
+    tab.display();
+    tab.presetUIState.conversion.editingPreset = plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF cached') ?? null;
+    tab.display();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const encoderSetting = tab.containerEl.querySelector('.image-converter-encoder-detection') as HTMLElement;
+    expect(encoderSetting).toBeTruthy();
+    expect(encoderSetting.classList.contains('image-converter-encoder-detected')).toBe(true);
+
+    const crfSetting = tab.containerEl.querySelector('.image-converter-ffmpeg-crf') as HTMLElement;
+    expect(crfSetting).toBeTruthy();
+    expect(crfSetting.classList.contains('image-converter-encoder-detected')).toBe(true);
+  });
+
+  it('11.14 Encoder cache invalidates when FFmpeg path changes', async () => {
+    plugin.settings.conversionPresets.push({
+      name: 'AVIF change',
+      outputFormat: 'AVIF',
+      quality: 80,
+      colorDepth: 1,
+      resizeMode: 'None',
+      desiredWidth: 0,
+      desiredHeight: 0,
+      desiredLongestEdge: 0,
+      enlargeOrReduce: 'Auto',
+      allowLargerFiles: true,
+      skipConversionPatterns: '',
+      ffmpegExecutablePath: '/usr/bin/ffmpeg',
+      ffmpegCrf: 30,
+      ffmpegPreset: 'medium',
+      detectedEncoder: 'libaom-av1'
+    } as ConversionPreset);
+
+    plugin.settings.detectedEncoder = 'libaom-av1';
+    plugin.settings.singleImageModalSettings = {
+      conversionPresetName: 'AVIF change',
+      outputFormat: 'AVIF',
+      quality: 80,
+      colorDepth: 1,
+      resizeMode: 'None',
+      desiredWidth: 0,
+      desiredHeight: 0,
+      desiredLongestEdge: 0,
+      enlargeOrReduce: 'Auto',
+      allowLargerFiles: true,
+      pngquantExecutablePath: '',
+      pngquantQuality: '65-80',
+      ffmpegExecutablePath: '/usr/bin/ffmpeg',
+      ffmpegCrf: 30,
+      ffmpegPreset: 'medium',
+      detectedEncoder: 'libaom-av1'
+    };
+
+    tab.activeTab = 'conversion';
+    tab.display();
+    tab.presetUIState.conversion.editingPreset = plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF change') ?? null;
+    tab.display();
+
+    const ffmpegSetting = tab.containerEl.querySelector('.image-converter-ffmpeg-executable-path input') as HTMLInputElement;
+    ffmpegSetting.value = '/opt/ffmpeg';
+    ffmpegSetting.dispatchEvent(new Event('change'));
+
+    expect(plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF change')?.detectedEncoder).toBeUndefined();
+    expect(plugin.settings.detectedEncoder).toBeUndefined();
+    expect(plugin.settings.singleImageModalSettings?.detectedEncoder).toBeUndefined();
+
+    const encoderSetting = tab.containerEl.querySelector('.image-converter-encoder-detection') as HTMLElement;
+    expect(encoderSetting.classList.contains('image-converter-encoder-detected')).toBe(false);
+  });
+});

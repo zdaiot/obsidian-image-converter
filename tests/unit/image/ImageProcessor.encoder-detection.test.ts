@@ -194,6 +194,34 @@ describe('Unit: ImageProcessor AVIF Encoder Detection', () => {
       expect(encoder2).toBe('libaom-av1');
     });
 
+    it('should reuse cache for normalized executable paths', async () => {
+      // Arrange
+      const { spawn } = await import('child_process');
+      (spawn as any).mockImplementation(mockSpawnWithValidation('V....D libaom-av1           libaom AV1'));
+
+      // Act - quoted path
+      await (processor as any).detectAvifEncoder(' "C:/ffmpeg/bin/ffmpeg.exe" ');
+
+      // Act - normalized path
+      const encoder2 = await (processor as any).detectAvifEncoder('C:/ffmpeg/bin/ffmpeg.exe');
+
+      // Assert
+      expect(spawn).toHaveBeenCalledTimes(2); // List + validation once
+      expect(encoder2).toBe('libaom-av1');
+    });
+
+    it('should short-circuit when cached encoder is provided', async () => {
+      // Arrange
+      const { spawn } = await import('child_process');
+
+      // Act
+      const encoder = await (processor as any).detectAvifEncoder('/usr/bin/ffmpeg', 'libaom-av1');
+
+      // Assert
+      expect(encoder).toBe('libaom-av1');
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
     it('should handle spawn errors gracefully', async () => {
       // Arrange
       const { spawn } = await import('child_process');
