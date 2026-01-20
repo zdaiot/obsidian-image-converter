@@ -150,7 +150,7 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     expect((fs.unlink as any).mock.calls.length).toBeGreaterThan(0);
   });
 
-  it('1.36 [I] Alpha path: uses format=rgba and alphaextract in filter chain', async () => {
+  it('1.36 [I] Alpha path: uses filter_complex with dual streams for proper alpha encoding', async () => {
     // Arrange
     // eslint-disable-next-line id-length
     const inputBytes = makePngBytes({ w: 16, h: 16, alpha: true });
@@ -224,15 +224,31 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
       }
     );
 
-    // Assert filter parts in args (third call is conversion)
+    // Assert: filter_complex dual-stream approach for proper alpha
     const { calls } = (spawn as any).mock;
     expect(calls.length).toBe(3);
     const [, args] = calls[2] as [string, string[]];
-    expect(args).toContain('-filter:v:0');
-    const filterIndex = args.indexOf('-filter:v:0');
-    expect(args[filterIndex + 1]).toContain('format=rgba');
-    expect(args).toContain('-filter:v:1');
-    expect(args).toContain('alphaextract');
+    
+    // Should use -filter_complex for dual-stream processing
+    expect(args).toContain('-filter_complex');
+    const filterIndex = args.indexOf('-filter_complex');
+    const filterComplex = args[filterIndex + 1];
+    
+    // Filter complex should contain key elements
+    expect(filterComplex).toContain('format=rgba');
+    expect(filterComplex).toContain('split');
+    expect(filterComplex).toContain('alphaextract');
+    expect(filterComplex).toContain('format=yuv444p');
+    expect(filterComplex).toContain('format=gray');
+    
+    // Should map both color and alpha streams
+    expect(args).toContain('-map');
+    expect(args).toContain('[c444]');
+    expect(args).toContain('[a]');
+    
+    // Should have separate frame limits for each stream
+    expect(args).toContain('-frames:v:0');
+    expect(args).toContain('-frames:v:1');
   });
 
   it('1.37 [I] Missing path or failure: returns original bytes and cleans up temp on failure', async () => {

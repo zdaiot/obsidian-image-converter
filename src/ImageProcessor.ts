@@ -876,22 +876,31 @@ if (format === 'ORIGINAL') {
             let args: string[];
 
             if (hasTransparency) {
-                // For images with transparency
-                let filterChain = 'format=rgba';
+                // For images with transparency, use filter_complex to create dual streams:
+                // - Stream 0: YUV444P color data with proper BT.709 colorspace
+                // - Stream 1: Grayscale alpha extracted with full range
+                // This approach properly encodes alpha in AVIF using libaom-av1
+                
+                // Build the filter_complex string
+                let scaleComponent = '';
                 if (scaleFilter) {
-                    filterChain += `,${scaleFilter}`;
+                    scaleComponent = `,${scaleFilter}`;
                 }
+                
+                const filterComplex = `[0:v]format=rgba${scaleComponent},split[c][t];` +
+                    `[c]format=yuv444p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv[c444];` +
+                    `[t]alphaextract,format=gray,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=pc[a]`;
 
                 args = [
                     '-i', 'pipe:0',
-                    '-frames:v', '1',              // Safety: Only process 1 frame
-                    '-map', '0',
-                    '-map', '0',
-                    '-filter:v:0', filterChain,
-                    '-filter:v:1', 'alphaextract',
-                    '-c:v', encoder,               // Use detected encoder
+                    '-filter_complex', filterComplex,
+                    '-map', '[c444]',
+                    '-map', '[a]',
+                    '-frames:v:0', '1',             // Only process 1 frame for color stream
+                    '-frames:v:1', '1',             // Only process 1 frame for alpha stream
+                    '-c:v', encoder,                // Use detected encoder
                     '-crf', validatedCrf.toString(),
-                    '-b:v', '0',                   // Force constant quality mode
+                    '-b:v', '0',                    // Force constant quality mode
                 ];
 
                 // Only add preset for encoders that support it
