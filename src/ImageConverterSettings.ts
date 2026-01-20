@@ -83,6 +83,7 @@ export interface ConversionPreset {
     ffmpegExecutablePath?: string;
     ffmpegCrf?: number;
     ffmpegPreset?: string;
+    detectedEncoder?: string;  // Cached detected encoder for AVIF
 }
 
 // Interface for UI state management (more structured)
@@ -137,6 +138,7 @@ export interface ImageConverterSettings {
     ffmpegExecutablePath: string;  // For AVIF
     ffmpegCrf: number;             // For AVIF
     ffmpegPreset: string;          // For AVIF
+    detectedEncoder?: string;      // Cached detected encoder for AVIF
 
     resizeMode: ResizeMode;
     desiredWidth: number;
@@ -247,7 +249,8 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
 
     ffmpegExecutablePath: "",  // Default for AVIF
     ffmpegCrf: 23,             // Default for AVIF
-    ffmpegPreset: "medium",          // Default for AVIF
+    ffmpegPreset: "medium",    // Default for AVIF
+    detectedEncoder: undefined, // No cached encoder by default
 
     resizeMode: "None",
     desiredWidth: 800,
@@ -2144,6 +2147,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         const ffmpegExecutablePathSetting = containerEl.querySelector(".image-converter-ffmpeg-executable-path");
         const ffmpegCrfSetting = containerEl.querySelector(".image-converter-ffmpeg-crf");
         const ffmpegPresetSetting = containerEl.querySelector(".image-converter-ffmpeg-preset");
+        const encoderDetectionSetting = containerEl.querySelector(".image-converter-encoder-detection");
 
 
         qualitySetting?.remove();
@@ -2161,6 +2165,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         ffmpegExecutablePathSetting?.remove();
         ffmpegCrfSetting?.remove();
         ffmpegPresetSetting?.remove();
+        encoderDetectionSetting?.remove();
 
         // Insert Quality setting after Output Format
         if (["WEBP", "JPEG", "ORIGINAL"].includes(preset.outputFormat)) {
@@ -2252,6 +2257,21 @@ export class ImageConverterSettingTab extends PluginSettingTab {
 
         // Insert AVIF settings after Output Format
         if (preset.outputFormat === "AVIF") {
+            const buildEncoderDesc = (prefix: string, encoderLabel: string, suffix: string): DocumentFragment => {
+                const fragment = document.createDocumentFragment();
+                const prefixSpan = document.createElement("span");
+                prefixSpan.textContent = prefix;
+                const encoderSpan = document.createElement("span");
+                encoderSpan.textContent = encoderLabel;
+                encoderSpan.className = "image-converter-encoder-highlight";
+                const suffixSpan = document.createElement("span");
+                suffixSpan.textContent = suffix;
+                fragment.append(prefixSpan, encoderSpan, suffixSpan);
+                return fragment;
+            };
+
+            let setEncoderDetectionDesc: (encoderLabel: string, crfMin?: number, crfMax?: number) => void;
+            let setCrfDesc: (encoderLabel: string, crfMin?: number, crfMax?: number) => void;
             const executablePathSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name
                 .setName("FFmpeg executable path 🛈")
@@ -2267,11 +2287,167 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                 });
             outputFormatSetting.settingEl.insertAdjacentElement("afterend", executablePathSetting.settingEl);
 
+            // Add encoder detection button
+            let encoderDetectionButton: ButtonComponent | undefined;
+            const encoderDetectionSetting = new Setting(containerEl)
+                .setName("Encoder detection")
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: AV1
+                .setDesc("Detect and validate working AV1 encoder by running a test encode. This ensures hardware encoders are actually available on your system.")
+                .setClass("image-converter-encoder-detection")
+                .addButton(button => {
+                    encoderDetectionButton = button;
+                    button
+                        .setButtonText("Detect encoder")
+                        .setCta()
+                        .onClick(async () => {
+                            if (!preset.ffmpegExecutablePath) {
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case -- FFmpeg is the official brand name
+                                new Notice("Please specify FFmpeg executable path first");
+                                return;
+                            }
+                            
+                            button.setButtonText("Validating...");
+                            button.setDisabled(true);
+                            
+                            try {
+                                // Import ImageProcessor to use detection method
+                                // eslint-disable-next-line @typescript-eslint/naming-convention -- Import matches class name
+                                const { ImageProcessor, ENCODER_CONFIGS } = await import('./ImageProcessor');
+                                type AvifEncoder = keyof typeof ENCODER_CONFIGS;
+                                const processor = new ImageProcessor(this.plugin.supportedImageFormats);
+                                
+                                // Use reflection to access private method (for settings UI only)
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- Accessing private method for UI
+                                const encoder = await (processor as any).detectAvifEncoder(preset.ffmpegExecutablePath, preset.detectedEncoder) as AvifEncoder | null;
+                                
+                                if (encoder) {
+                                    const encoderInfo = ENCODER_CONFIGS[encoder];
+                                    const platformHint = encoderInfo ? ` (${encoderInfo.platformHint})` : '';
+                                    new Notice(`✓ Working encoder: ${encoder}${platformHint}`, 5000);
+                                    
+                                    // Save detected encoder to preset (persists in data.json)
+                                    preset.detectedEncoder = encoder;
+                                    void this.plugin.saveSettings();
+                                     
+                                    setEncoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo?.crfMin, encoderInfo?.crfMax);
+                                    encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
+                                    encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
+                                    
+                                    // Update CRF description with the detected encoder's range
+                                    setCrfDesc(encoder, encoderInfo?.crfMin, encoderInfo?.crfMax);
+                                    crfSetting.settingEl.addClass("image-converter-encoder-detected");
+                                    
+                                    // Show/hide preset setting based on encoder support
+                                    if (encoderInfo?.supportsPreset && encoderInfo.presetNames) {
+                                        presetSetting.settingEl.show();
+                                        presetSetting.setDesc(`Encoding preset for ${encoder} (speed vs. compression).`);
+                                        
+                                        // Update dropdown options with encoder-specific presets
+                                        const dropdown = presetSetting.controlEl.querySelector('select');
+                                        if (dropdown) {
+                                            // Clear existing options
+                                            dropdown.innerHTML = '';
+                                            
+                                            // Add encoder-specific presets
+                                            encoderInfo.presetNames.forEach(presetName => {
+                                                const option = document.createElement('option');
+                                                option.value = presetName;
+                                                option.text = presetName;
+                                                dropdown.appendChild(option);
+                                            });
+                                            
+                                            // Set current value or default to middle option
+                                            const currentPreset = preset.ffmpegPreset || encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                                            dropdown.value = encoderInfo.presetNames.includes(currentPreset) ? currentPreset : encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                                            preset.ffmpegPreset = dropdown.value;
+                                            void this.plugin.saveSettings();
+                                        }
+                                    } else {
+                                        presetSetting.settingEl.hide();
+                                    }
+                                } else {
+                                    const cachedEncoder = preset.detectedEncoder as AvifEncoder | undefined;
+                                    const cachedInfo = cachedEncoder ? ENCODER_CONFIGS[cachedEncoder] : undefined;
+                                    if (cachedInfo) {
+                                        if (!cachedEncoder) {
+                                            return;
+                                        }
+                                        const platformHint = cachedInfo ? ` (${cachedInfo.platformHint})` : '';
+                                        new Notice(`Encoder detection failed. Using cached encoder: ${cachedEncoder}${platformHint}`, 5000);
+                                        setEncoderDetectionDesc(`${cachedEncoder}${platformHint}`, cachedInfo.crfMin, cachedInfo.crfMax);
+                                        encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
+                                        encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
+                                        setCrfDesc(cachedEncoder, cachedInfo.crfMin, cachedInfo.crfMax);
+                                        crfSetting.settingEl.addClass("image-converter-encoder-detected");
+
+                                        if (cachedInfo.supportsPreset && cachedInfo.presetNames) {
+                                            presetSetting.settingEl.show();
+                                            presetSetting.setDesc(`Encoding preset for ${cachedEncoder} (speed vs. compression).`);
+
+                                            const dropdown = presetSetting.controlEl.querySelector('select');
+                                            if (dropdown) {
+                                                dropdown.innerHTML = '';
+                                                cachedInfo.presetNames.forEach(presetName => {
+                                                    const option = document.createElement('option');
+                                                    option.value = presetName;
+                                                    option.text = presetName;
+                                                    dropdown.appendChild(option);
+                                                });
+
+                                                const currentPreset = preset.ffmpegPreset || cachedInfo.presetNames[Math.floor(cachedInfo.presetNames.length / 2)];
+                                                dropdown.value = cachedInfo.presetNames.includes(currentPreset) ? currentPreset : cachedInfo.presetNames[Math.floor(cachedInfo.presetNames.length / 2)];
+                                                preset.ffmpegPreset = dropdown.value;
+                                                void this.plugin.saveSettings();
+                                            }
+                                        } else {
+                                            presetSetting.settingEl.hide();
+                                        }
+                                        return;
+                                    }
+
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: AV1, FFmpeg
+                                    new Notice("No working AV1 encoder found. Install FFmpeg with AV1 support.", 5000);
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical terms: FFmpeg, libaom-av1, libsvtav1
+                                    encoderDetectionSetting.setDesc("No working encoder found. Install FFmpeg with libaom-av1, libsvtav1, or ensure hardware drivers are installed.");
+                                    encoderDetectionSetting.settingEl.removeClass("image-converter-encoder-detected");
+                                    encoderDetectionButton?.buttonEl?.removeClass("image-converter-encoder-detected");
+                                    crfSetting.settingEl.removeClass("image-converter-encoder-detected");
+                                    
+                                    // Reset to default visibility and description when no encoder found
+                                    presetSetting.settingEl.show();
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical description
+                                    presetSetting.setDesc("Encoding preset (speed vs. compression).");
+                                    
+                                    // Restore default preset options (libaom-av1 presets as default)
+                                    const dropdown = presetSetting.controlEl.querySelector('select');
+                                    if (dropdown) {
+                                        dropdown.innerHTML = '';
+                                        const defaultPresets = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow', 'placebo'];
+                                        defaultPresets.forEach(presetName => {
+                                            const option = document.createElement('option');
+                                            option.value = presetName;
+                                            option.text = presetName;
+                                            dropdown.appendChild(option);
+                                        });
+                                        dropdown.value = preset.ffmpegPreset || 'medium';
+                                    }
+                                }
+                            } catch (error) {
+                                console.error("Encoder detection error:", error);
+                                new Notice(`Error detecting encoder: ${error instanceof Error ? error.message : String(error)}`);
+                            } finally {
+                                button.setButtonText("Detect encoder");
+                                button.setDisabled(false);
+                            }
+                        });
+                });
+            executablePathSetting.settingEl.insertAdjacentElement("afterend", encoderDetectionSetting.settingEl);
+
             const crfSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name and acronym
                 .setName("FFmpeg CRF")
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical term (AVIF)
-                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality).")
+                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see specific range.")
                 .setClass("image-converter-ffmpeg-crf")
                 .addText((text) => { // Keep as TextComponent for numeric input
                     text.setValue(preset.ffmpegCrf?.toString() || "")
@@ -2282,7 +2458,26 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                         });
                     text.inputEl.setAttr('spellcheck', 'false');
                 });
-            executablePathSetting.settingEl.insertAdjacentElement("afterend", crfSetting.settingEl);
+            setEncoderDetectionDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
+                encoderDetectionSetting.setDesc(
+                    buildEncoderDesc(
+                        "Working encoder: ",
+                        encoderLabel,
+                        `. CRF range: ${crfMin ?? "?"}-${crfMax ?? "?"}`
+                    )
+                );
+            };
+
+            setCrfDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
+                crfSetting.setDesc(
+                    buildEncoderDesc(
+                        "Constant rate factor for ",
+                        encoderLabel,
+                        ` (${crfMin ?? "?"}-${crfMax ?? "?"}, lower is better quality).`
+                    )
+                );
+            };
+            encoderDetectionSetting.settingEl.insertAdjacentElement("afterend", crfSetting.settingEl);
 
 
             const presetSetting = new Setting(containerEl)
@@ -2313,6 +2508,55 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                         });
                 });
             crfSetting.settingEl.insertAdjacentElement("afterend", presetSetting.settingEl);
+
+            // Rehydrate encoder UI from cached preset value (if present)
+            void (async () => {
+                if (!preset.detectedEncoder) {
+                    return;
+                }
+
+                try {
+                    const { ENCODER_CONFIGS } = await import('./ImageProcessor');
+                    type AvifEncoder = keyof typeof ENCODER_CONFIGS;
+                    const encoder = preset.detectedEncoder as AvifEncoder;
+                    const encoderInfo = ENCODER_CONFIGS[encoder];
+                    if (!encoderInfo) {
+                        return;
+                    }
+
+                    const platformHint = encoderInfo ? ` (${encoderInfo.platformHint})` : '';
+                    setEncoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo.crfMin, encoderInfo.crfMax);
+                    encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
+                    encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
+                    setCrfDesc(encoder, encoderInfo.crfMin, encoderInfo.crfMax);
+                    crfSetting.settingEl.addClass("image-converter-encoder-detected");
+
+                    if (encoderInfo.supportsPreset && encoderInfo.presetNames) {
+                        presetSetting.settingEl.show();
+                        presetSetting.setDesc(`Encoding preset for ${encoder} (speed vs. compression).`);
+
+                        const dropdown = presetSetting.controlEl.querySelector('select');
+                        if (dropdown) {
+                            dropdown.innerHTML = '';
+                            encoderInfo.presetNames.forEach(presetName => {
+                                const option = document.createElement('option');
+                                option.value = presetName;
+                                option.text = presetName;
+                                dropdown.appendChild(option);
+                            });
+
+                            const currentPreset = preset.ffmpegPreset || encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                            dropdown.value = encoderInfo.presetNames.includes(currentPreset) ? currentPreset : encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                            preset.ffmpegPreset = dropdown.value;
+                            void this.plugin.saveSettings();
+                        }
+                    } else {
+                        presetSetting.settingEl.hide();
+                    }
+                } catch (error) {
+                    console.error("Encoder rehydration error:", error);
+                }
+            })();
         }
 
         // Find the last setting added so far

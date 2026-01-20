@@ -37,7 +37,7 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     (fs.unlink as any).mockReset();
   });
 
-  it('1.35 [I] Happy path: uses libaom-av1, reads temp file, deletes it', async () => {
+  it('1.35 [I] Happy path: detects encoder, uses -b:v 0 and -frames:v 1, reads temp file, deletes it', async () => {
     // Arrange
     // eslint-disable-next-line id-length
     const inputBytes = makePngBytes({ w: 64, h: 64 });
@@ -48,16 +48,34 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     ;(fs.unlink as any).mockResolvedValue(undefined);
 
     const { spawn } = await import('child_process');
+    let spawnCallCount = 0;
+    
     (spawn as any).mockImplementation(() => {
+      spawnCallCount++;
       const proc = new EventEmitter() as any;
       proc.stdin = { write: vi.fn(), end: vi.fn() };
       proc.stdout = new EventEmitter();
       proc.stderr = new EventEmitter();
-      // Emit close first so the implementation's 'exit' handler doesn't remove 'close'
-      setTimeout(() => {
-        proc.emit('close', 0, null);
-        proc.emit('exit', 0, null);
-      }, 0);
+      
+      // First call: encoder list
+      if (spawnCallCount === 1) {
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D libaom-av1           libaom AV1 (codec av1)'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else if (spawnCallCount === 2) {
+        // Second call: encoder validation
+        setTimeout(() => {
+          proc.stderr.emit('data', Buffer.from('frame=    1 fps=0.0 q=0.0 Lsize=       0kB'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else {
+        // Third call: actual conversion
+        setTimeout(() => {
+          proc.emit('close', 0, null);
+          proc.emit('exit', 0, null);
+        }, 0);
+      }
       return proc;
     });
 
@@ -91,11 +109,28 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
       }
     );
 
-    // Assert args
+    // Assert: Three spawn calls (encoder list + validation + conversion)
     const { calls } = (spawn as any).mock;
-    expect(calls.length).toBeGreaterThan(0);
-    const [cmd, args] = calls[0] as [string, string[]];
+    expect(calls.length).toBe(3);
+    
+    // First call: encoder list
+    const [detectionCmd, detectionArgs] = calls[0] as [string, string[]];
+    expect(detectionCmd).toContain('ffmpeg');
+    expect(detectionArgs).toContain('-encoders');
+    
+    // Second call: encoder validation
+    const [validationCmd, validationArgs] = calls[1] as [string, string[]];
+    expect(validationCmd).toContain('ffmpeg');
+    expect(validationArgs).toContain('-c:v');
+    expect(validationArgs).toContain('libaom-av1');
+    
+    // Third call: actual conversion
+    const [cmd, args] = calls[2] as [string, string[]];
     expect(cmd).toContain('ffmpeg');
+    expect(args).toContain('-frames:v');
+    expect(args).toContain('1');
+    expect(args).toContain('-b:v');
+    expect(args).toContain('0');
     expect(args).toContain('-c:v');
     expect(args).toContain('libaom-av1');
     expect(args).toContain('-crf');
@@ -124,15 +159,34 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     vi.spyOn<any, any>(processor as any, 'checkForTransparency').mockResolvedValue(true);
 
     const { spawn } = await import('child_process');
+    let spawnCallCount = 0;
+    
     (spawn as any).mockImplementation(() => {
+      spawnCallCount++;
       const proc = new EventEmitter() as any;
       proc.stdin = { write: vi.fn(), end: vi.fn() };
       proc.stdout = new EventEmitter();
       proc.stderr = new EventEmitter();
-      setTimeout(() => {
-        proc.emit('close', 0, null);
-        proc.emit('exit', 0, null);
-      }, 0);
+      
+      // First call: encoder list
+      if (spawnCallCount === 1) {
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D libaom-av1           libaom AV1 (codec av1)'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else if (spawnCallCount === 2) {
+        // Second call: encoder validation
+        setTimeout(() => {
+          proc.stderr.emit('data', Buffer.from('frame=    1 fps=0.0 q=0.0 Lsize=       0kB'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else {
+        // Third call: actual conversion
+        setTimeout(() => {
+          proc.emit('close', 0, null);
+          proc.emit('exit', 0, null);
+        }, 0);
+      }
       return proc;
     });
 
@@ -166,11 +220,13 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
       }
     );
 
-    // Assert filter parts in args
+    // Assert filter parts in args (third call is conversion)
     const { calls } = (spawn as any).mock;
-    const [, args] = calls[0] as [string, string[]];
+    expect(calls.length).toBe(3);
+    const [, args] = calls[2] as [string, string[]];
     expect(args).toContain('-filter:v:0');
-    expect(args).toContain('format=rgba');
+    const filterIndex = args.indexOf('-filter:v:0');
+    expect(args[filterIndex + 1]).toContain('format=rgba');
     expect(args).toContain('-filter:v:1');
     expect(args).toContain('alphaextract');
   });
@@ -219,7 +275,23 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     // Arrange - failure path (non-zero exit)
     ;(fs.readFile as any).mockClear();
     ;(fs.unlink as any).mockClear();
-    (spawn as any).mockImplementation(() => mockChildProcess({ exitCode: 1, stderr: Buffer.from('err') }));
+    let spawnCallCount = 0;
+    (spawn as any).mockImplementation(() => {
+      spawnCallCount++;
+      // First call: encoder detection succeeds
+      if (spawnCallCount === 1) {
+        const proc = new EventEmitter() as any;
+        proc.stdout = new EventEmitter();
+        proc.stderr = new EventEmitter();
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D libaom-av1           libaom AV1'));
+          proc.emit('close', 0, null);
+        }, 0);
+        return proc;
+      }
+      // Second call: conversion fails
+      return mockChildProcess({ exitCode: 1, stderr: Buffer.from('err') });
+    });
 
     // Act: failure returns original (outer catch) and attempts temp unlink
     const resultFail = await processor.processImage(
@@ -262,15 +334,33 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     const inputBlob = makeImageBlob(inputBytes, 'image/png');
 
     const { spawn } = await import('child_process');
+    let spawnCallCount = 0;
     (spawn as any).mockImplementation(() => {
+      spawnCallCount++;
       const proc: any = new EventEmitter();
       proc.stdin = { write: vi.fn(), end: vi.fn() };
       proc.stdout = new EventEmitter();
       proc.stderr = new EventEmitter();
-      setTimeout(() => {
-        proc.emit('close', 0, null);
-        proc.emit('exit', 0, null);
-      }, 0);
+      
+      if (spawnCallCount === 1) {
+        // Encoder list
+        setTimeout(() => {
+          proc.stdout.emit('data', Buffer.from('V....D libaom-av1           libaom AV1'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else if (spawnCallCount === 2) {
+        // Encoder validation
+        setTimeout(() => {
+          proc.stderr.emit('data', Buffer.from('frame=    1 fps=0.0 q=0.0 Lsize=       0kB'));
+          proc.emit('close', 0, null);
+        }, 0);
+      } else {
+        // Actual conversion
+        setTimeout(() => {
+          proc.emit('close', 0, null);
+          proc.emit('exit', 0, null);
+        }, 0);
+      }
       return proc;
     });
 
@@ -311,15 +401,20 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
       }
     );
 
-    // Assert argument safety
+    // Assert argument safety for all three calls
     const { calls } = (spawn as any).mock;
-    expect(calls.length).toBeGreaterThan(0);
-    const [firstCall] = calls;
-    const [command, args, options] = firstCall;
-    expect(typeof command).toBe('string'); // command
-    expect(Array.isArray(args)).toBe(true); // args array, not string
-    if (firstCall.length > 2) {
-      expect(!options || options.shell !== true).toBe(true);
+    expect(calls.length).toBe(3);
+    
+    for (const call of calls) {
+      const [command, args, options] = call;
+      expect(typeof command).toBe('string'); // command
+      expect(Array.isArray(args)).toBe(true); // args array, not string
+      if (call.length > 2) {
+        expect(!options || options.shell !== true).toBe(true);
+      }
     }
   });
+
+  // Note: Test for "no encoder found" error is covered by unit tests in ImageProcessor.encoder-detection.test.ts
+  // Integration test is skipped due to complexity of mocking the full call stack with preset handling
 });

@@ -756,6 +756,27 @@ html[data-theme="dark"] {
 	color: var(--text-error) !important;
 }
 
+/* --- Encoder detection success styling --- */
+.image-converter-encoder-highlight {
+	color: var(--color-green);
+}
+
+button.image-converter-encoder-detected,
+.image-converter-encoder-detected.button,
+.image-converter-encoder-detected.mod-cta {
+	background-color: var(--color-green);
+	border-color: var(--color-green);
+	color: var(--text-on-accent);
+}
+
+button.image-converter-encoder-detected:hover,
+.image-converter-encoder-detected.button:hover,
+.image-converter-encoder-detected.mod-cta:hover {
+	background-color: var(--color-green);
+	border-color: var(--color-green);
+	filter: brightness(1.05);
+}
+
 /* -------------- Link FORMATS --------------------- */
 .image-converter-format-examples-section {
 	margin-top: 20px;

@@ -23,14 +23,368 @@ interface Dimensions {
     aspectRatio: number;
 }
 
+// AVIF encoder types and configuration
+export type AvifEncoder = 'libaom-av1' | 'libsvtav1' | 'av1_nvenc' | 'av1_qsv' | 'av1_amf' | 'av1_vaapi' | 'av1_videotoolbox' | 'av1_mf';
+
+interface EncoderConfig {
+    name: AvifEncoder;
+    crfMin: number;
+    crfMax: number;
+    supportsPreset: boolean;
+    presetNames?: string[]; // Valid preset names for this encoder
+    platformHint: 'software' | 'nvidia' | 'intel' | 'amd' | 'apple' | 'vaapi' | 'mediafoundation';
+}
+
+/* eslint-disable @typescript-eslint/naming-convention -- FFmpeg encoder names use underscores and hyphens */
+export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
+    'libaom-av1': { 
+        name: 'libaom-av1', 
+        crfMin: 0, 
+        crfMax: 63, 
+        supportsPreset: true,
+        presetNames: ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'ultrafast'],
+        platformHint: 'software' 
+    },
+    'libsvtav1': { 
+        name: 'libsvtav1', 
+        crfMin: 0, 
+        crfMax: 63, 
+        supportsPreset: true,
+        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'], // 0=slowest/best, 13=fastest/lowest
+        platformHint: 'software' 
+    },
+    'av1_nvenc': { 
+        name: 'av1_nvenc', 
+        crfMin: 0, 
+        crfMax: 51, 
+        supportsPreset: true,
+        presetNames: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], // p1=fastest, p7=slowest/best
+        platformHint: 'nvidia' 
+    },
+    'av1_qsv': { name: 'av1_qsv', crfMin: 0, crfMax: 51, supportsPreset: false, platformHint: 'intel' },
+    'av1_amf': { name: 'av1_amf', crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'amd' },
+    'av1_vaapi': { name: 'av1_vaapi', crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'vaapi' },
+    'av1_videotoolbox': { name: 'av1_videotoolbox', crfMin: 0, crfMax: 100, supportsPreset: false, platformHint: 'apple' },
+    'av1_mf': { name: 'av1_mf', crfMin: 0, crfMax: 100, supportsPreset: false, platformHint: 'mediafoundation' }
+};
+/* eslint-enable @typescript-eslint/naming-convention */
+
 export class ImageProcessor {
 
     supportedImageFormats: SupportedImageFormats
     private preset: ConversionPreset | undefined;
     private settings: ImageConverterSettings;
+    private detectedEncoder: AvifEncoder | null = null;
+    private static encoderDetectionCache: Map<string, AvifEncoder | null> = new Map(); // Static cache shared across instances
+    private encoderFallbackAttempted: boolean = false;
 
     constructor(supportedImageFormats: SupportedImageFormats) {
         this.supportedImageFormats = supportedImageFormats;
+    }
+
+    /**
+     * Detects available AV1 encoders in FFmpeg with cross-platform support (Windows, macOS, Linux).
+     * Uses caching to avoid repeated detection calls.
+     * Priority order: Hardware encoders > Fast software encoders > Slow software encoders
+     * 
+     * @param executablePath Path to ffmpeg executable
+     * @param cachedEncoder Optional encoder name from persistent settings
+     * @returns Promise resolving to encoder name or null if none found
+     */
+    private async detectAvifEncoder(executablePath: string, cachedEncoder?: string): Promise<AvifEncoder | null> {
+        // Check if we have a cached encoder from settings (persistent across sessions)
+        if (cachedEncoder && cachedEncoder in ENCODER_CONFIGS) {
+            console.warn(`Using cached encoder from settings: ${cachedEncoder}`);
+            ImageProcessor.encoderDetectionCache.set(executablePath, cachedEncoder as AvifEncoder);
+            return cachedEncoder as AvifEncoder;
+        }
+        
+        // Check cache first (static cache shared across all instances)
+        if (ImageProcessor.encoderDetectionCache.has(executablePath)) {
+            return ImageProcessor.encoderDetectionCache.get(executablePath) || null;
+        }
+
+        return new Promise((resolve) => {
+            let ffmpeg: ChildProcess | null = null;
+            
+            try {
+                if (Platform.isWin) {
+                    ffmpeg = spawn(executablePath, ['-encoders'], { windowsHide: true });
+                } else {
+                    ffmpeg = spawn(executablePath, ['-encoders']);
+                }
+            } catch (spawnError) {
+                const errorMessage = spawnError instanceof Error ? spawnError.message : String(spawnError);
+                console.error(`Failed to spawn FFmpeg for encoder detection: ${errorMessage}`);
+                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                resolve(null);
+                return;
+            }
+
+            if (!ffmpeg || !ffmpeg.stdout) {
+                console.error('FFmpeg process or stdout not available for encoder detection');
+                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                resolve(null);
+                return;
+            }
+
+            let output = '';
+            
+            ffmpeg.stdout.on('data', (data: Buffer) => {
+                output += data.toString();
+            });
+
+            ffmpeg.stderr?.on('data', (data: Buffer) => {
+                // FFmpeg outputs encoder list to stderr on some versions
+                output += data.toString();
+            });
+
+            ffmpeg.on('close', (code: number) => {
+                // Use async IIFE to handle validation
+                void (async () => {
+                // Priority order based on platform and performance
+                const candidateEncoders: AvifEncoder[] = [];
+
+                // macOS: Check for VideoToolbox hardware encoder first
+                if (Platform.isMacOS && output.includes('av1_videotoolbox')) {
+                    candidateEncoders.push('av1_videotoolbox');
+                }
+
+                // Windows/Linux: Check for hardware encoders
+                if (output.includes('av1_nvenc')) {
+                    candidateEncoders.push('av1_nvenc'); // NVIDIA
+                }
+                if (output.includes('av1_qsv')) {
+                    candidateEncoders.push('av1_qsv'); // Intel Quick Sync
+                }
+                if (output.includes('av1_amf')) {
+                    candidateEncoders.push('av1_amf'); // AMD AMF
+                }
+                if (Platform.isWin && output.includes('av1_mf')) {
+                    candidateEncoders.push('av1_mf'); // Windows MediaFoundation
+                }
+                if (Platform.isLinux && output.includes('av1_vaapi')) {
+                    candidateEncoders.push('av1_vaapi'); // Linux VAAPI
+                }
+
+                // Software encoders as fallback
+                if (output.includes('libsvtav1')) {
+                    candidateEncoders.push('libsvtav1'); // SVT-AV1 (faster software encoder)
+                }
+                if (output.includes('libaom-av1')) {
+                    candidateEncoders.push('libaom-av1'); // libaom (reference encoder)
+                }
+
+                // Validate each candidate encoder with actual test encode
+                let validatedEncoder: AvifEncoder | null = null;
+                for (const candidate of candidateEncoders) {
+                    const isValid = await this.validateEncoder(executablePath, candidate);
+                    if (isValid) {
+                        validatedEncoder = candidate;
+                        break; // Use first working encoder (priority order)
+                    }
+                }
+
+                // Cache the result (static cache)
+                ImageProcessor.encoderDetectionCache.set(executablePath, validatedEncoder);
+
+                if (validatedEncoder) {
+                    const config = ENCODER_CONFIGS[validatedEncoder];
+                    // eslint-disable-next-line no-console -- Informational logging for encoder detection
+                    console.log(`Validated AVIF encoder: ${validatedEncoder} (${config.platformHint})`);
+                } else {
+                    console.warn('No working AV1 encoder found. Please install FFmpeg with AV1 support.');
+                }
+
+                resolve(validatedEncoder);
+                })();
+            });
+
+            ffmpeg.on('error', (err: Error) => {
+                console.error(`Error during encoder detection: ${err.message}`);
+                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                resolve(null);
+            });
+
+            // Timeout for encoder detection
+            setTimeout(() => {
+                if (ffmpeg && !ffmpeg.killed) {
+                    try { ffmpeg.kill('SIGTERM'); } catch { /* ignore */ }
+                    ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                    resolve(null);
+                }
+            }, 3000);
+        });
+    }
+
+    /**
+     * Validates that an encoder actually works by performing a quick test encode.
+     * This ensures hardware encoders are actually available (not just compiled into FFmpeg).
+     * 
+     * @param executablePath Path to ffmpeg executable
+     * @param encoder Encoder name to validate
+     * @returns Promise resolving to true if encoder works, false otherwise
+     */
+    private async validateEncoder(executablePath: string, encoder: AvifEncoder): Promise<boolean> {
+        return new Promise((resolve) => {
+            let ffmpeg: ChildProcess | null = null;
+            
+            try {
+                // Fast preflight check: encode a tiny 16x16 black frame
+                const args = [
+                    '-hide_banner',
+                    '-f', 'lavfi',
+                    '-i', 'color=c=black:s=16x16:d=0.1:r=1',
+                    '-frames:v', '1',
+                    '-c:v', encoder,
+                    '-f', 'null',
+                    '-'
+                ];
+                
+                if (Platform.isWin) {
+                    ffmpeg = spawn(executablePath, args, { windowsHide: true });
+                } else {
+                    ffmpeg = spawn(executablePath, args);
+                }
+            } catch (spawnError) {
+                console.error(`Failed to spawn FFmpeg for encoder validation: ${spawnError}`);
+                resolve(false);
+                return;
+            }
+
+            if (!ffmpeg || !ffmpeg.stderr) {
+                resolve(false);
+                return;
+            }
+
+            let errorOutput = '';
+            
+            // Capture stderr for error detection
+            ffmpeg.stderr.on('data', (data: Buffer) => {
+                errorOutput += data.toString();
+            });
+
+            let resolved = false;
+            const timeoutId = setTimeout(() => {
+                if (!resolved && ffmpeg && !ffmpeg.killed) {
+                    resolved = true;
+                    try { ffmpeg.kill('SIGTERM'); } catch { /* ignore */ }
+                    console.warn(`Encoder validation timeout for ${encoder}`);
+                    resolve(false);
+                }
+            }, 2000);
+
+            ffmpeg.on('close', (code: number) => {
+                if (resolved) return; // Already resolved by timeout
+                resolved = true;
+                clearTimeout(timeoutId);
+                
+                // Success if encoder completed without errors
+                const hasError = code !== 0 || 
+                                errorOutput.includes('Cannot load') ||
+                                errorOutput.includes('Could not open encoder') ||
+                                errorOutput.includes('No NVENC capable devices') ||
+                                errorOutput.includes('nvcuda.dll') ||
+                                errorOutput.includes('Error');
+                
+                if (hasError) {
+                    console.warn(`Encoder validation failed for ${encoder}: ${errorOutput.substring(0, 200)}`);
+                    resolve(false);
+                } else {
+                    console.warn(`Encoder validation succeeded for ${encoder}`);
+                    resolve(true);
+                }
+            });
+
+            ffmpeg.on('error', (err: Error) => {
+                if (resolved) return; // Already resolved
+                resolved = true;
+                clearTimeout(timeoutId);
+                console.error(`Error during encoder validation: ${err.message}`);
+                resolve(false);
+            });
+        });
+    }
+
+    /**
+     * Detects available software AV1 encoders as fallback when hardware encoders fail.
+     * Checks for libsvtav1 first (faster), then libaom-av1 (more compatible).
+     * 
+     * @param executablePath Path to ffmpeg executable
+     * @returns Promise resolving to software encoder name or null if none found
+     */
+    private async detectSoftwareEncoder(executablePath: string): Promise<AvifEncoder | null> {
+        return new Promise((resolve) => {
+            let ffmpeg: ChildProcess | null = null;
+            
+            try {
+                if (Platform.isWin) {
+                    ffmpeg = spawn(executablePath, ['-encoders'], { windowsHide: true });
+                } else {
+                    ffmpeg = spawn(executablePath, ['-encoders']);
+                }
+            } catch (spawnError) {
+                console.error('Failed to spawn FFmpeg for software encoder detection:', spawnError);
+                resolve(null);
+                return;
+            }
+
+            if (!ffmpeg || !ffmpeg.stdout) {
+                resolve(null);
+                return;
+            }
+
+            let output = '';
+            
+            ffmpeg.stdout.on('data', (data: Buffer) => {
+                output += data.toString();
+            });
+
+            ffmpeg.stderr?.on('data', (data: Buffer) => {
+                output += data.toString();
+            });
+
+            ffmpeg.on('close', () => {
+                // Check for software encoders only
+                if (output.includes('libsvtav1')) {
+                    console.warn('Found software fallback: libsvtav1');
+                    resolve('libsvtav1');
+                } else if (output.includes('libaom-av1')) {
+                    console.warn('Found software fallback: libaom-av1');
+                    resolve('libaom-av1');
+                } else {
+                    resolve(null);
+                }
+            });
+
+            ffmpeg.on('error', () => {
+                resolve(null);
+            });
+
+            setTimeout(() => {
+                if (ffmpeg && !ffmpeg.killed) {
+                    try { ffmpeg.kill('SIGTERM'); } catch { /* ignore */ }
+                    resolve(null);
+                }
+            }, 3000);
+        });
+    }
+
+    /**
+     * Validates and clamps CRF value based on encoder capabilities
+     * @param crf Desired CRF value
+     * @param encoder Encoder name
+     * @returns Clamped CRF value within valid range
+     */
+    private validateCrf(crf: number, encoder: AvifEncoder): number {
+        const config = ENCODER_CONFIGS[encoder];
+        const clampedCrf = Math.max(config.crfMin, Math.min(config.crfMax, crf));
+        
+        if (clampedCrf !== crf) {
+            console.warn(`CRF ${crf} out of range for ${encoder} (${config.crfMin}-${config.crfMax}). Using ${clampedCrf}.`);
+        }
+        
+        return clampedCrf;
     }
 
     /**
@@ -446,7 +800,7 @@ if (format === 'ORIGINAL') {
     }
 
     /**
-     * Processes an image using FFmpeg for AVIF conversion.
+     * Processes an image using FFmpeg for AVIF conversion with automatic encoder detection.
      * @param file The image file as a Blob.
      * @param executablePath The path to the FFmpeg executable.
      * @param crf The Constant Rate Factor for AVIF encoding (lower is better quality, 0-63).
@@ -469,6 +823,26 @@ if (format === 'ORIGINAL') {
         desiredLongestEdge: number,
         enlargeOrReduce: EnlargeReduce
     ): Promise<ArrayBuffer> {
+
+        // Reset fallback flag at the start of each conversion
+        this.encoderFallbackAttempted = false;
+        
+        // Detect available encoder with fallback (use cached encoder from preset if available)
+        const cachedEncoder = this.preset?.detectedEncoder;
+        const encoder = await this.detectAvifEncoder(executablePath, cachedEncoder);
+        
+        if (!encoder) {
+            const errorMsg = 'No AV1 encoder found in FFmpeg. Please install FFmpeg with AV1 support (libaom-av1, libsvtav1, or hardware encoder).';
+            console.error(errorMsg);
+            new Notice(errorMsg);
+            throw new Error(errorMsg);
+        }
+        
+        // Store the initially detected encoder for potential fallback
+        this.detectedEncoder = encoder;
+
+        const encoderConfig = ENCODER_CONFIGS[encoder];
+        const validatedCrf = this.validateCrf(crf, encoder);
 
         let resizedBlob: Blob = file;
         if (resizeMode !== 'None') {
@@ -502,18 +876,27 @@ if (format === 'ORIGINAL') {
 
                 args = [
                     '-i', 'pipe:0',
+                    '-frames:v', '1',              // Safety: Only process 1 frame
                     '-map', '0',
                     '-map', '0',
                     '-filter:v:0', filterChain,
                     '-filter:v:1', 'alphaextract',
-                    '-c:v', 'libaom-av1',
-                    '-crf', crf.toString(),
-                    '-preset', preset,
+                    '-c:v', encoder,               // Use detected encoder
+                    '-crf', validatedCrf.toString(),
+                    '-b:v', '0',                   // Force constant quality mode
+                ];
+
+                // Only add preset for encoders that support it
+                if (encoderConfig.supportsPreset) {
+                    args.push('-preset', preset);
+                }
+
+                args.push(
                     '-still-picture', '1',
                     '-y',
                     '-f', 'avif',
                     tempFilePath
-                ];
+                );
             } else {
                 // For images without transparency
                 let filterChain = 'format=yuv420p';
@@ -523,15 +906,25 @@ if (format === 'ORIGINAL') {
 
                 args = [
                     '-i', 'pipe:0',
+                    '-frames:v', '1',              // Safety: Only process 1 frame
                     '-filter:v', filterChain,
-                    '-c:v', 'libaom-av1',
-                    '-crf', crf.toString(),
-                    '-preset', preset,
+                    '-c:v', encoder,               // Use detected encoder
+                    '-crf', validatedCrf.toString(),
+                    '-b:v', '0',                   // Force constant quality mode
+                ];
+
+                // Only add preset for encoders that support it
+                if (encoderConfig.supportsPreset) {
+                    args.push('-preset', preset);
+                }
+
+                args.push(
                     '-still-picture', '1',
+                    '-pix_fmt', 'yuv420p',         // Explicit pixel format
                     '-y',
                     '-f', 'avif',
                     tempFilePath
-                ];
+                );
             }
 
             let ffmpeg: ChildProcess | null = null;
@@ -557,16 +950,15 @@ if (format === 'ORIGINAL') {
             // Declare errorData before onExit handler to avoid temporal dead zone
             let errorData = "";
 
+            // Track if we've already handled the error to avoid double-rejection
+            let errorHandled = false;
+            
             // Fallback: ensure process terminates to unblock tests when mocks emit 'exit' instead of 'close'
             const onExit = (code: number | null, _signal: string | null) => {
-                // Mirror close handler logic to reject on non-zero
-                ffmpeg?.removeAllListeners('close');
-                if (code !== null && code !== 0) {
-                    const exitErrorMessage = `FFmpeg failed with code ${code}: ${errorData}`;
-                    console.error(exitErrorMessage);
-                    // Clean up temp file on error (wrapped for test mock compatibility)
-                    void Promise.resolve(fs.unlink(tempFilePath)).catch(() => { /* ignore cleanup errors */ });
-                    reject(new Error(exitErrorMessage));
+                // Only handle error if 'close' event hasn't been triggered yet (for test mocks)
+                if (code !== null && code !== 0 && !errorHandled) {
+                    // Don't reject immediately - let close handler handle it with fallback logic
+                    // This is just to ensure tests don't hang
                 }
             };
             ffmpeg.on('exit', onExit);
@@ -583,10 +975,48 @@ if (format === 'ORIGINAL') {
             ffmpeg.on('close', (code: number) => {
                 void (async () => {
                     if (code !== 0) {
+                        errorHandled = true; // Mark error as handled
                         const closeErrorMessage = `FFmpeg failed with code ${code}: ${errorData}`;
                         console.error(closeErrorMessage);
                         // Clean up temp file on error
                         try { await fs.unlink(tempFilePath); } catch { /* ignore errors during cleanup */ }
+                        
+                        // Check if this is a hardware encoder failure and we haven't tried fallback yet
+                        const isHardwareEncoder = encoderConfig.platformHint !== 'software';
+                        const isHardwareError = errorData.includes('Cannot load') || 
+                                               errorData.includes('could not open') || 
+                                               errorData.includes('Could not open encoder') ||
+                                               errorData.includes('nvcuda.dll') ||
+                                               errorData.includes('No NVENC capable devices');
+                        
+                        if (isHardwareEncoder && isHardwareError && !this.encoderFallbackAttempted) {
+                            console.warn(`Hardware encoder ${encoder} failed. Attempting fallback to software encoder...`);
+                            this.encoderFallbackAttempted = true;
+                            
+                            // Try to find a software fallback
+                            const softwareFallback = await this.detectSoftwareEncoder(executablePath);
+                            if (softwareFallback) {
+                                new Notice(`Hardware encoder unavailable. Falling back to ${softwareFallback}...`);
+                                // Invalidate cache and retry with software encoder
+                                ImageProcessor.encoderDetectionCache.delete(executablePath);
+                                ImageProcessor.encoderDetectionCache.set(executablePath, softwareFallback);
+                                
+                                // Retry the entire process with software encoder
+                                try {
+                                    const result = await this.processWithFFmpeg(
+                                        file, executablePath, crf, preset, resizeMode,
+                                        desiredWidth, desiredHeight, desiredLongestEdge, enlargeOrReduce
+                                    );
+                                    resolve(result);
+                                    return;
+                                } catch (fallbackError) {
+                                    console.error('Software encoder fallback also failed:', fallbackError);
+                                    reject(new Error(`Both hardware and software encoders failed: ${String(fallbackError)}`));
+                                    return;
+                                }
+                            }
+                        }
+                        
                         reject(new Error(closeErrorMessage));
                         return;
                     }
