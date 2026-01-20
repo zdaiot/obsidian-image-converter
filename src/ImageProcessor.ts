@@ -32,6 +32,7 @@ interface EncoderConfig {
     crfMin: number;
     crfMax: number;
     supportsPreset: boolean;
+    useCpuUsed?: boolean; // libaom-av1 uses -cpu-used instead of -preset
     presetNames?: string[]; // Valid preset names for this encoder
     platformHint: 'software' | 'nvidia' | 'intel' | 'amd' | 'apple' | 'vaapi' | 'mediafoundation';
 }
@@ -43,7 +44,8 @@ export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
         crfMin: 0, 
         crfMax: 63, 
         supportsPreset: true,
-        presetNames: ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'ultrafast'],
+        useCpuUsed: true, // libaom uses -cpu-used (0-8) not -preset
+        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // 0=slowest/best, 8=fastest
         platformHint: 'software' 
     },
     'libsvtav1': { 
@@ -390,6 +392,45 @@ export class ImageProcessor {
         }
         
         return clampedCrf;
+    }
+
+    /**
+     * Maps FFmpeg preset names to libaom-av1 cpu-used values.
+     * libaom-av1 uses -cpu-used (0-8) instead of -preset.
+     * - Values 0-8 are used directly
+     * - Common preset names are mapped to approximate cpu-used equivalents
+     * 
+     * @param preset Preset name or cpu-used value string
+     * @returns cpu-used value as string (0-8)
+     */
+    private mapPresetToCpuUsed(preset: string): string {
+        // If already a numeric value 0-8, use it directly
+        const numValue = parseInt(preset, 10);
+        if (!isNaN(numValue) && numValue >= 0 && numValue <= 8) {
+            return numValue.toString();
+        }
+
+        // Map common FFmpeg preset names to cpu-used values
+        // cpu-used: 0=slowest/best quality, 8=fastest/lowest quality
+        const presetMap: Record<string, string> = {
+            'veryslow': '0',
+            'slower': '1',
+            'slow': '2',
+            'medium': '4',
+            'fast': '5',
+            'faster': '6',
+            'veryfast': '7',
+            'ultrafast': '8'
+        };
+
+        const mapped = presetMap[preset.toLowerCase()];
+        if (mapped) {
+            return mapped;
+        }
+
+        // Default to 4 (medium) if unknown
+        console.warn(`Unknown preset '${preset}' for libaom-av1, using cpu-used=4 (medium)`);
+        return '4';
     }
 
     /**
@@ -903,9 +944,16 @@ if (format === 'ORIGINAL') {
                     '-b:v', '0',                    // Force constant quality mode
                 ];
 
-                // Only add preset for encoders that support it
+                // Add preset/cpu-used for encoders that support it
                 if (encoderConfig.supportsPreset) {
-                    args.push('-preset', preset);
+                    if (encoderConfig.useCpuUsed) {
+                        // libaom-av1 uses -cpu-used instead of -preset
+                        // Map common preset names to cpu-used values, or use the value directly
+                        const cpuUsedValue = this.mapPresetToCpuUsed(preset);
+                        args.push('-cpu-used', cpuUsedValue);
+                    } else {
+                        args.push('-preset', preset);
+                    }
                 }
 
                 args.push(
@@ -930,9 +978,15 @@ if (format === 'ORIGINAL') {
                     '-b:v', '0',                   // Force constant quality mode
                 ];
 
-                // Only add preset for encoders that support it
+                // Add preset/cpu-used for encoders that support it
                 if (encoderConfig.supportsPreset) {
-                    args.push('-preset', preset);
+                    if (encoderConfig.useCpuUsed) {
+                        // libaom-av1 uses -cpu-used instead of -preset
+                        const cpuUsedValue = this.mapPresetToCpuUsed(preset);
+                        args.push('-cpu-used', cpuUsedValue);
+                    } else {
+                        args.push('-preset', preset);
+                    }
                 }
 
                 args.push(

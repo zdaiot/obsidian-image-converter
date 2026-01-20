@@ -139,8 +139,8 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     expect(args).toContain('libaom-av1');
     expect(args).toContain('-crf');
     expect(args).toContain('23');
-    expect(args).toContain('-preset');
-    expect(args).toContain('medium');
+    // libaom-av1 uses -cpu-used instead of -preset
+    expect(args).toContain('-cpu-used');
 
     // Output
     const out = new Uint8Array(result);
