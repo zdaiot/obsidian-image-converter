@@ -4,6 +4,7 @@ import { ProcessSingleImageModal } from '../../../src/ProcessSingleImageModal';
 import ImageConverterPlugin from '../../../src/main';
 import { App, TFile } from 'obsidian';
 import { fakeApp, fakeVault, fakeTFile } from '../../factories/obsidian';
+import { crossPlatformPathPattern } from '../../helpers/test-setup';
 
 function makePlugin(app: App, overrides: any = {}) {
   const plugin = new ImageConverterPlugin(app, { id: 'image-converter' } as any);
@@ -347,14 +348,21 @@ describe('ProcessSingleImageModal UI flows (Phase 7: 7.1–7.14 subset)', () => 
     await Promise.resolve();
 
     const inputs = Array.from(container.querySelectorAll('.conversion-settings-container input[type="text"]')) as HTMLInputElement[];
-const [ffmpegPath] = inputs;
+    const [ffmpegPath, crfInput] = inputs;
+    if (!ffmpegPath) {
+      throw new Error('Expected ffmpegPath input to exist');
+    }
     ffmpegPath.value = 'C:/tools/ffmpeg.exe';
     ffmpegPath.dispatchEvent(new Event('change'));
 
-    const sliders = Array.from(container.querySelectorAll('.conversion-settings-container input[type="range"]')) as HTMLInputElement[];
-const [crfSlider] = sliders;
-    crfSlider.value = '28';
-    crfSlider.dispatchEvent(new Event('input'));
+    // CRF input should exist for AVIF format with default encoder settings.
+    // If this assertion fails, verify the encoder type being used (libaom-av1 vs libsvtav1)
+    // and update the test accordingly.
+    expect(crfInput, 'Expected CRF input to exist for AVIF format').toBeTruthy();
+    if (crfInput) {
+      crfInput.value = '28';
+      crfInput.dispatchEvent(new Event('change'));
+    }
 
     const presetSelect = Array.from(container.querySelectorAll('.conversion-settings-container select'))[1] as HTMLSelectElement;
     presetSelect.value = 'slow';
@@ -369,7 +377,8 @@ const [crfSlider] = sliders;
     await Promise.resolve();
 
     const ffmpegPathAgain = Array.from(container.querySelectorAll('.conversion-settings-container input[type="text"]'))[0] as HTMLInputElement;
-    expect(ffmpegPathAgain.value).toBe('C:/tools/ffmpeg.exe');
+    // Use cross-platform path pattern helper for assertions that work on both Windows and POSIX
+    expect(ffmpegPathAgain.value).toMatch(crossPlatformPathPattern('C:/tools/ffmpeg.exe'));
   });
 
   it('7.6 Dimension input sanitization stores 0 for non-numeric and triggers preview on previewable formats', async () => {
@@ -545,7 +554,8 @@ const [crfSlider] = sliders;
       pngquantQuality: '',
       ffmpegExecutablePath: '',
       ffmpegCrf: 23,
-      ffmpegPreset: 'medium'
+      ffmpegPreset: 'medium',
+      detectedEncoder: undefined
     };
     const saveSpy = vi.spyOn(plugin as any, 'saveSettings').mockResolvedValue(undefined);
 
@@ -598,18 +608,28 @@ const [crfSlider] = sliders;
     await Promise.resolve();
 
     const inputs = Array.from(container.querySelectorAll('.conversion-settings-container input[type="text"]')) as HTMLInputElement[];
-    inputs[0].value = 'E:/ffmpeg/ffmpeg.exe';
-    inputs[0].dispatchEvent(new Event('change'));
+    const [ffmpegPath, crfInput] = inputs;
+    if (!ffmpegPath) {
+      throw new Error('Expected ffmpegPath input to exist');
+    }
+    ffmpegPath.value = 'E:/ffmpeg/ffmpeg.exe';
+    ffmpegPath.dispatchEvent(new Event('change'));
 
-    const sliders = Array.from(container.querySelectorAll('.conversion-settings-container input[type="range"]')) as HTMLInputElement[];
-    sliders[0].value = '30';
-    sliders[0].dispatchEvent(new Event('input'));
+    // CRF input should exist for AVIF format with default encoder settings.
+    // If this assertion fails, verify the encoder type being used (libaom-av1 vs libsvtav1)
+    // and update the test accordingly.
+    expect(crfInput, 'Expected CRF input to exist for AVIF format').toBeTruthy();
+    if (crfInput) {
+      crfInput.value = '30';
+      crfInput.dispatchEvent(new Event('change'));
+    }
 
     const presetSelect = Array.from(container.querySelectorAll('.conversion-settings-container select'))[1] as HTMLSelectElement;
     presetSelect.value = 'slow';
     presetSelect.dispatchEvent(new Event('change'));
 
-    expect((modal as any).modalSettings.ffmpegExecutablePath).toBe('E:/ffmpeg/ffmpeg.exe');
+    // Use cross-platform path pattern helper for assertions that work on both Windows and POSIX
+    expect((modal as any).modalSettings.ffmpegExecutablePath).toMatch(crossPlatformPathPattern('E:/ffmpeg/ffmpeg.exe'));
     expect((modal as any).modalSettings.ffmpegCrf).toBe(30);
     expect((modal as any).modalSettings.ffmpegPreset).toBe('slow');
   });

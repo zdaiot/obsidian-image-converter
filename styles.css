@@ -318,7 +318,8 @@ html[data-theme="dark"] {
  * Match exact DOM structure with child combinator for maximum specificity. */
 .modal-content.process-single-image-modal > .conversion-settings-container,
 .modal-content.process-single-image-modal > .resize-settings-container,
-.modal-content.process-single-image-modal > .process-single-image-modal-buttons {
+.modal-content.process-single-image-modal
+	> .process-single-image-modal-buttons {
 	padding: 5px;
 }
 
@@ -329,8 +330,12 @@ html[data-theme="dark"] {
 	padding-bottom: var(--size-4-2, 0.75em);
 }
 
-.modal:not(.mod-settings) .process-single-image-modal .setting-item:not(.setting-item-heading):last-child,
-.modal:not(.mod-settings) .image-convert-modal .setting-item:not(.setting-item-heading):last-child {
+.modal:not(.mod-settings)
+	.process-single-image-modal
+	.setting-item:not(.setting-item-heading):last-child,
+.modal:not(.mod-settings)
+	.image-convert-modal
+	.setting-item:not(.setting-item-heading):last-child {
 	padding-bottom: var(--size-4-2, 0.75em);
 }
 
@@ -761,6 +766,14 @@ html[data-theme="dark"] {
 	color: var(--color-green);
 }
 
+/* --- Shared icon button styling --- */
+.image-converter-icon-button {
+	margin-right: 8px;
+	min-width: 26px;
+	padding: 0 6px;
+}
+
+/* --- Encoder detection success styling (green state) --- */
 button.image-converter-encoder-detected,
 .image-converter-encoder-detected.button,
 .image-converter-encoder-detected.mod-cta {

@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ImageConverterPlugin from '../../../src/main';
 import { ImageConverterSettingTab, DEFAULT_SETTINGS, type ConversionPreset, type FilenamePreset } from '../../../src/ImageConverterSettings';
 import type { LinkFormatPreset } from '../../../src/LinkFormatSettings';
-import { App } from 'obsidian';
+import { App, Platform } from 'obsidian';
+import { crossPlatformPathPattern } from '../../helpers/test-setup';
 
 // Mock SortableJS to capture onEnd callbacks for reorder (11.9)
 vi.mock('sortablejs', () => {
@@ -15,6 +16,11 @@ vi.mock('sortablejs', () => {
     }
   };
 });
+
+vi.mock('fs/promises', () => ({
+  access: vi.fn(),
+  stat: vi.fn()
+}));
 
 function makeAppWithStorage() {
   const storage: Record<string, any> = {};
@@ -153,6 +159,155 @@ describe('Settings defaults, global preset application, and field constraints (1
     tab = new ImageConverterSettingTab(app, plugin);
   });
 
+  it('11.11 Auto-detect FFmpeg populates preset and modal settings', async () => {
+    const adapter = (app.vault.adapter as any);
+    adapter.getBasePath = vi.fn(() => '/vault');
+
+    // eslint-disable-next-line import/no-nodejs-modules -- mocked in tests
+    const { access, stat } = await import('fs/promises');
+    (access as any).mockResolvedValue(undefined);
+    (stat as any).mockResolvedValue({ isFile: () => true });
+
+    plugin.settings.conversionPresets.push({
+      name: 'AVIF preset',
+      outputFormat: 'AVIF',
+      quality: 80,
+      colorDepth: 1,
+      resizeMode: 'None',
+      desiredWidth: 0,
+      desiredHeight: 0,
+      desiredLongestEdge: 0,
+      enlargeOrReduce: 'Auto',
+      allowLargerFiles: true,
+      skipConversionPatterns: '',
+      ffmpegExecutablePath: '',
+      ffmpegCrf: 23,
+      ffmpegPreset: 'medium'
+    } as ConversionPreset);
+
+    tab.display();
+    tab.activeTab = 'conversion';
+    tab.display();
+    tab.presetUIState.conversion.editingPreset = plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF preset') ?? null;
+    tab.display();
+
+    const refreshedSetting = tab.containerEl.querySelector('.image-converter-ffmpeg-executable-path') as HTMLElement;
+    expect(refreshedSetting).toBeTruthy();
+
+    const button = refreshedSetting.querySelector('.image-converter-icon-button') as HTMLButtonElement;
+    expect(button).toBeTruthy();
+    const clickPromise = button.dispatchEvent(new Event('click'));
+    await Promise.resolve(clickPromise);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const activePreset = plugin.settings.conversionPresets.find(preset => preset.outputFormat === 'AVIF');
+    if (!activePreset) {
+      throw new Error('Expected AVIF preset to exist');
+    }
+
+    // Verify path normalization: the detected path should be a valid path ending with /vault/ffmpeg.exe
+    // The path separator used depends on the platform (Platform.isWin in mock is true)
+    // crossPlatformPathPattern accepts both Windows (\) and POSIX (/) separators
+    const ffmpegPathPattern = crossPlatformPathPattern('/vault/ffmpeg.exe');
+    
+    // Verify the path is not empty and matches the expected pattern
+    expect(activePreset.ffmpegExecutablePath).not.toBe('');
+    expect(activePreset.ffmpegExecutablePath).toMatch(ffmpegPathPattern);
+    expect(plugin.settings.ffmpegExecutablePath).toMatch(ffmpegPathPattern);
+
+    if (plugin.settings.singleImageModalSettings) {
+      expect(plugin.settings.singleImageModalSettings.ffmpegExecutablePath).toMatch(ffmpegPathPattern);
+    }
+  });
+
+  it('11.12 Auto-detect FFmpeg expands env vars and tilde in candidate paths', async () => {
+    const adapter = (app.vault.adapter as any);
+    adapter.getBasePath = vi.fn(() => undefined);
+
+    const originalPath = process.env.PATH;
+    const originalHome = process.env.HOME;
+    const originalProgramFiles = process.env.ProgramFiles;
+    const originalProgramData = process.env.ProgramData;
+
+    try {
+      if (Platform.isWin) {
+        process.env.ProgramFiles = 'C:/Program Files';
+        process.env.ProgramData = 'C:/ProgramData';
+        process.env.PATH = '%ProgramFiles%/ffmpeg/bin;C:/Other';
+      } else {
+        process.env.HOME = '/home/tester';
+        process.env.PATH = '~/ffmpeg/bin:/usr/bin';
+      }
+
+      // eslint-disable-next-line import/no-nodejs-modules -- mocked in tests
+      const { access, stat } = await import('fs/promises');
+      (access as any).mockResolvedValue(undefined);
+      (stat as any).mockResolvedValue({ isFile: () => true });
+
+      plugin.settings.conversionPresets.push({
+        name: 'AVIF env preset',
+        outputFormat: 'AVIF',
+        quality: 80,
+        colorDepth: 1,
+        resizeMode: 'None',
+        desiredWidth: 0,
+        desiredHeight: 0,
+        desiredLongestEdge: 0,
+        enlargeOrReduce: 'Auto',
+        allowLargerFiles: true,
+        skipConversionPatterns: '',
+        ffmpegExecutablePath: '',
+        ffmpegCrf: 23,
+        ffmpegPreset: 'medium'
+      } as ConversionPreset);
+
+      tab.display();
+      tab.activeTab = 'conversion';
+      tab.display();
+      tab.presetUIState.conversion.editingPreset = plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF env preset') ?? null;
+      tab.display();
+
+      const refreshedSetting = tab.containerEl.querySelector('.image-converter-ffmpeg-executable-path') as HTMLElement;
+      expect(refreshedSetting).toBeTruthy();
+
+      const button = refreshedSetting.querySelector('.image-converter-icon-button') as HTMLButtonElement;
+      expect(button).toBeTruthy();
+      const clickPromise = button.dispatchEvent(new Event('click'));
+      await Promise.resolve(clickPromise);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const activePreset = plugin.settings.conversionPresets.find(preset => preset.name === 'AVIF env preset');
+      if (!activePreset) {
+        throw new Error('Expected AVIF env preset to exist');
+      }
+
+      if (Platform.isWin) {
+        expect(activePreset.ffmpegExecutablePath).toMatch(crossPlatformPathPattern('C:/Program Files/ffmpeg/bin/ffmpeg.exe'));
+      } else {
+        expect(activePreset.ffmpegExecutablePath).toMatch(crossPlatformPathPattern('/home/tester/ffmpeg/bin/ffmpeg'));
+      }
+    } finally {
+      process.env.PATH = originalPath;
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalProgramFiles === undefined) {
+        delete process.env.ProgramFiles;
+      } else {
+        process.env.ProgramFiles = originalProgramFiles;
+      }
+      if (originalProgramData === undefined) {
+        delete process.env.ProgramData;
+      } else {
+        process.env.ProgramData = originalProgramData;
+      }
+    }
+  });
+
   it('11.7 Global preset application: selecting and resetting via dropdown updates selected presets', async () => {
     tab.display();
     const container = tab.containerEl.querySelector('.image-converter-global-preset-container') as HTMLElement;
@@ -218,10 +373,10 @@ describe('Settings defaults, global preset application, and field constraints (1
 });
 
 // -----------------------------
-// 11.3, 11.4, 11.5, 11.11 Preset management
+// 11.3–11.5 Preset management
 // -----------------------------
 
-describe('Settings preset management (11.3, 11.4, 11.5, 11.11)', () => {
+describe('Settings preset management (11.3, 11.4, 11.5)', () => {
   let app: App;
   let plugin: ImageConverterPlugin;
   let tab: ImageConverterSettingTab;

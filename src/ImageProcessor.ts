@@ -5,6 +5,7 @@ import { SupportedImageFormats } from "./SupportedImageFormats";
 import { ChildProcess, spawn } from 'child_process';
 import { ConversionPreset, ImageConverterSettings, DEFAULT_SETTINGS } from "./ImageConverterSettings";
 import * as piexif from "piexifjs"; // Import piexif library
+import { normalizeExecutablePath } from "./utils/ffmpegPath";
 
 // eslint-disable-next-line import/no-nodejs-modules -- Required for temporary file handling in FFmpeg processing; Obsidian runs on Electron with Node.js support
 import * as fs from 'fs/promises';
@@ -91,17 +92,19 @@ export class ImageProcessor {
      * @param cachedEncoder Optional encoder name from persistent settings
      * @returns Promise resolving to encoder name or null if none found
      */
-    private async detectAvifEncoder(executablePath: string, cachedEncoder?: string): Promise<AvifEncoder | null> {
+    public async detectAvifEncoder(executablePath: string, cachedEncoder?: string): Promise<AvifEncoder | null> {
+        const normalizedPath = normalizeExecutablePath(executablePath);
+
         // Check if we have a cached encoder from settings (persistent across sessions)
         if (cachedEncoder && cachedEncoder in ENCODER_CONFIGS) {
             console.warn(`Using cached encoder from settings: ${cachedEncoder}`);
-            ImageProcessor.encoderDetectionCache.set(executablePath, cachedEncoder as AvifEncoder);
+            ImageProcessor.encoderDetectionCache.set(normalizedPath, cachedEncoder as AvifEncoder);
             return cachedEncoder as AvifEncoder;
         }
         
         // Check cache first (static cache shared across all instances)
-        if (ImageProcessor.encoderDetectionCache.has(executablePath)) {
-            return ImageProcessor.encoderDetectionCache.get(executablePath) || null;
+        if (ImageProcessor.encoderDetectionCache.has(normalizedPath)) {
+            return ImageProcessor.encoderDetectionCache.get(normalizedPath) || null;
         }
 
         return new Promise((resolve) => {
@@ -109,21 +112,21 @@ export class ImageProcessor {
             
             try {
                 if (Platform.isWin) {
-                    ffmpeg = spawn(executablePath, ['-encoders'], { windowsHide: true });
+                    ffmpeg = spawn(normalizedPath, ['-encoders'], { windowsHide: true });
                 } else {
-                    ffmpeg = spawn(executablePath, ['-encoders']);
+                    ffmpeg = spawn(normalizedPath, ['-encoders']);
                 }
             } catch (spawnError) {
                 const errorMessage = spawnError instanceof Error ? spawnError.message : String(spawnError);
                 console.error(`Failed to spawn FFmpeg for encoder detection: ${errorMessage}`);
-                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                ImageProcessor.encoderDetectionCache.set(normalizedPath, null);
                 resolve(null);
                 return;
             }
 
             if (!ffmpeg || !ffmpeg.stdout) {
                 console.error('FFmpeg process or stdout not available for encoder detection');
-                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                ImageProcessor.encoderDetectionCache.set(normalizedPath, null);
                 resolve(null);
                 return;
             }
@@ -178,7 +181,7 @@ export class ImageProcessor {
                 // Validate each candidate encoder with actual test encode
                 let validatedEncoder: AvifEncoder | null = null;
                 for (const candidate of candidateEncoders) {
-                    const isValid = await this.validateEncoder(executablePath, candidate);
+                    const isValid = await this.validateEncoder(normalizedPath, candidate);
                     if (isValid) {
                         validatedEncoder = candidate;
                         break; // Use first working encoder (priority order)
@@ -186,7 +189,7 @@ export class ImageProcessor {
                 }
 
                 // Cache the result (static cache)
-                ImageProcessor.encoderDetectionCache.set(executablePath, validatedEncoder);
+                ImageProcessor.encoderDetectionCache.set(normalizedPath, validatedEncoder);
 
                 if (validatedEncoder) {
                     const config = ENCODER_CONFIGS[validatedEncoder];
@@ -202,7 +205,7 @@ export class ImageProcessor {
 
             ffmpeg.on('error', (err: Error) => {
                 console.error(`Error during encoder detection: ${err.message}`);
-                ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                ImageProcessor.encoderDetectionCache.set(normalizedPath, null);
                 resolve(null);
             });
 
@@ -210,7 +213,7 @@ export class ImageProcessor {
             setTimeout(() => {
                 if (ffmpeg && !ffmpeg.killed) {
                     try { ffmpeg.kill('SIGTERM'); } catch { /* ignore */ }
-                    ImageProcessor.encoderDetectionCache.set(executablePath, null);
+                    ImageProcessor.encoderDetectionCache.set(normalizedPath, null);
                     resolve(null);
                 }
             }, 3000);
@@ -228,6 +231,7 @@ export class ImageProcessor {
     private async validateEncoder(executablePath: string, encoder: AvifEncoder): Promise<boolean> {
         return new Promise((resolve) => {
             let ffmpeg: ChildProcess | null = null;
+            const normalizedPath = normalizeExecutablePath(executablePath);
             
             try {
                 // Fast preflight check: encode a tiny 16x16 black frame
@@ -242,9 +246,9 @@ export class ImageProcessor {
                 ];
                 
                 if (Platform.isWin) {
-                    ffmpeg = spawn(executablePath, args, { windowsHide: true });
+                    ffmpeg = spawn(normalizedPath, args, { windowsHide: true });
                 } else {
-                    ffmpeg = spawn(executablePath, args);
+                    ffmpeg = spawn(normalizedPath, args);
                 }
             } catch (spawnError) {
                 console.error(`Failed to spawn FFmpeg for encoder validation: ${spawnError}`);
@@ -316,12 +320,13 @@ export class ImageProcessor {
     private async detectSoftwareEncoder(executablePath: string): Promise<AvifEncoder | null> {
         return new Promise((resolve) => {
             let ffmpeg: ChildProcess | null = null;
+            const normalizedPath = normalizeExecutablePath(executablePath);
             
             try {
                 if (Platform.isWin) {
-                    ffmpeg = spawn(executablePath, ['-encoders'], { windowsHide: true });
+                    ffmpeg = spawn(normalizedPath, ['-encoders'], { windowsHide: true });
                 } else {
-                    ffmpeg = spawn(executablePath, ['-encoders']);
+                    ffmpeg = spawn(normalizedPath, ['-encoders']);
                 }
             } catch (spawnError) {
                 console.error('Failed to spawn FFmpeg for software encoder detection:', spawnError);
@@ -782,9 +787,11 @@ if (format === 'ORIGINAL') {
                     return file.arrayBuffer();  // Return original
                 }
 
+                const normalizedExecutablePath = normalizeExecutablePath(ffmpegExecutablePath);
+
                 return this.processWithFFmpeg(
                     file,
-                    ffmpegExecutablePath,
+                    normalizedExecutablePath,
                     ffmpegCrf,
                     ffmpegPreset,
                     resizeMode,
@@ -823,13 +830,14 @@ if (format === 'ORIGINAL') {
         desiredLongestEdge: number,
         enlargeOrReduce: EnlargeReduce
     ): Promise<ArrayBuffer> {
+        const normalizedExecutablePath = normalizeExecutablePath(executablePath);
 
         // Reset fallback flag at the start of each conversion
         this.encoderFallbackAttempted = false;
         
         // Detect available encoder with fallback (use cached encoder from preset if available)
         const cachedEncoder = this.preset?.detectedEncoder;
-        const encoder = await this.detectAvifEncoder(executablePath, cachedEncoder);
+        const encoder = await this.detectAvifEncoder(normalizedExecutablePath, cachedEncoder);
         
         if (!encoder) {
             const errorMsg = 'No AV1 encoder found in FFmpeg. Please install FFmpeg with AV1 support (libaom-av1, libsvtav1, or hardware encoder).';
@@ -931,9 +939,9 @@ if (format === 'ORIGINAL') {
 
             try {
                 if (Platform.isWin) {
-                    ffmpeg = spawn(executablePath, args, { windowsHide: true });
+                    ffmpeg = spawn(normalizedExecutablePath, args, { windowsHide: true });
                 } else {
-                    ffmpeg = spawn(executablePath, args);
+                    ffmpeg = spawn(normalizedExecutablePath, args);
                 }
             } catch (spawnError) {
                 const errorMessage = spawnError instanceof Error ? (spawnError.message || 'Unknown error') : String(spawnError);
@@ -994,17 +1002,17 @@ if (format === 'ORIGINAL') {
                             this.encoderFallbackAttempted = true;
                             
                             // Try to find a software fallback
-                            const softwareFallback = await this.detectSoftwareEncoder(executablePath);
+                            const softwareFallback = await this.detectSoftwareEncoder(normalizedExecutablePath);
                             if (softwareFallback) {
                                 new Notice(`Hardware encoder unavailable. Falling back to ${softwareFallback}...`);
                                 // Invalidate cache and retry with software encoder
-                                ImageProcessor.encoderDetectionCache.delete(executablePath);
-                                ImageProcessor.encoderDetectionCache.set(executablePath, softwareFallback);
+                                ImageProcessor.encoderDetectionCache.delete(normalizedExecutablePath);
+                                ImageProcessor.encoderDetectionCache.set(normalizedExecutablePath, softwareFallback);
                                 
                                 // Retry the entire process with software encoder
                                 try {
                                     const result = await this.processWithFFmpeg(
-                                        file, executablePath, crf, preset, resizeMode,
+                                        file, normalizedExecutablePath, crf, preset, resizeMode,
                                         desiredWidth, desiredHeight, desiredLongestEdge, enlargeOrReduce
                                     );
                                     resolve(result);

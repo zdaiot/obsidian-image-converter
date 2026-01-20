@@ -94,7 +94,7 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
       {
         name: 'test',
         outputFormat: 'AVIF',
-        ffmpegExecutablePath: 'C:/tools/ffmpeg.exe',
+        ffmpegExecutablePath: '"C:/tools/ffmpeg.exe"',
         ffmpegCrf: 23,
         ffmpegPreset: 'medium',
         quality: 1,
@@ -116,17 +116,20 @@ describe('Integration-lite: FFmpegAvifAdapter', () => {
     // First call: encoder list
     const [detectionCmd, detectionArgs] = calls[0] as [string, string[]];
     expect(detectionCmd).toContain('ffmpeg');
+    expect(detectionCmd).toBe('C:\\tools\\ffmpeg.exe');
     expect(detectionArgs).toContain('-encoders');
     
     // Second call: encoder validation
     const [validationCmd, validationArgs] = calls[1] as [string, string[]];
     expect(validationCmd).toContain('ffmpeg');
+    expect(validationCmd).toBe('C:\\tools\\ffmpeg.exe');
     expect(validationArgs).toContain('-c:v');
     expect(validationArgs).toContain('libaom-av1');
     
     // Third call: actual conversion
     const [cmd, args] = calls[2] as [string, string[]];
     expect(cmd).toContain('ffmpeg');
+    expect(cmd).toBe('C:\\tools\\ffmpeg.exe');
     expect(args).toContain('-frames:v');
     expect(args).toContain('1');
     expect(args).toContain('-b:v');

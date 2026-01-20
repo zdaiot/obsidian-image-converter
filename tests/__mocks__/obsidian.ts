@@ -130,6 +130,14 @@ export class ButtonComponent {
 
 export class TextComponent {
   inputEl: HTMLInputElement;
+  /**
+   * Stored callback for programmatic triggering via triggerChange().
+   * We keep this separate from addEventListener because:
+   * 1. addEventListener is for browser events (user interaction)
+   * 2. changeCb allows tests to trigger changes programmatically
+   *    without dispatching DOM events
+   */
+  private changeCb?: (value: string) => void;
   
   constructor(containerEl: HTMLElement) {
     this.inputEl = document.createElement('input');
@@ -152,6 +160,7 @@ export class TextComponent {
   }
   
   onChange(callback: (value: string) => void): this {
+    this.changeCb = callback;
     this.inputEl.addEventListener('change', (e) => {
       callback((e.target as HTMLInputElement).value);
     });
@@ -161,6 +170,11 @@ export class TextComponent {
   setDisabled(disabled: boolean): this {
     this.inputEl.disabled = disabled;
     return this;
+  }
+
+  triggerChange(value: string): void {
+    this.inputEl.value = value;
+    this.changeCb?.(value);
   }
 }
 

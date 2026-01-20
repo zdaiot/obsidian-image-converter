@@ -103,6 +103,17 @@ describe('Unit: ImageProcessor AVIF Encoder Detection', () => {
       expect(encoder).toBe('av1_nvenc');
     });
 
+    it('should normalize quoted executable paths before spawning', async () => {
+      const { spawn } = await import('child_process');
+      (spawn as any).mockImplementation(mockSpawnWithValidation('V....D libaom-av1           libaom AV1 (codec av1)'));
+
+      const encoder = await (processor as any).detectAvifEncoder(' "C:/ffmpeg/bin/ffmpeg.exe" ');
+
+      expect(encoder).toBe('libaom-av1');
+      const [firstCall] = (spawn as any).mock.calls;
+      expect(firstCall[0]).toBe('C:\\ffmpeg\\bin\\ffmpeg.exe');
+    });
+
     it('should detect av1_videotoolbox on macOS', async () => {
       // Arrange
       const { spawn } = await import('child_process');

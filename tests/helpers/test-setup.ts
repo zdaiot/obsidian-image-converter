@@ -394,5 +394,27 @@ export function setupFakeTimers(date?: Date | string | number) {
   };
 }
 
+/**
+ * Creates a cross-platform regex pattern for path matching.
+ * Converts a path string with forward slashes into a regex that matches
+ * both forward slashes (/) and backslashes (\).
+ * 
+ * @example
+ * crossPlatformPathPattern('/vault/ffmpeg.exe')
+ * // Returns regex matching '/vault/ffmpeg.exe' or '\\vault\\ffmpeg.exe'
+ * 
+ * @example
+ * crossPlatformPathPattern('C:/tools/ffmpeg.exe')
+ * // Returns regex matching 'C:/tools/ffmpeg.exe' or 'C:\\tools\\ffmpeg.exe'
+ */
+export function crossPlatformPathPattern(pathWithForwardSlashes: string): RegExp {
+  // Escape special regex characters: . + ? ^ $ { } ( ) | [ ] \
+  // Note: The character class [.+?^${}()|[\]\\] explicitly escapes ] as \]
+  const escaped = pathWithForwardSlashes.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  // Replace forward slashes with character class matching either separator
+  const pattern = escaped.replace(/\//g, '[/\\\\]');
+  return new RegExp(`${pattern}$`);
+}
+
 // Export test utilities
 export { vi };

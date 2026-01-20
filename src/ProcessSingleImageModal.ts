@@ -2,6 +2,8 @@
 import { App, Modal, Notice, TFile, Setting, MarkdownView } from "obsidian";
 import ImageConverterPlugin from "./main";
 import { OutputFormat, ResizeMode, EnlargeReduce } from "./ImageConverterSettings";
+import { ENCODER_CONFIGS, ImageProcessor } from "./ImageProcessor";
+import { findFfmpegExecutablePath, normalizeExecutablePath } from "./utils/ffmpegPath";
 
 export interface SingleImageModalSettings {
     conversionPresetName: string;
@@ -19,6 +21,7 @@ export interface SingleImageModalSettings {
     ffmpegExecutablePath: string;
     ffmpegCrf: number;
     ffmpegPreset: string;
+    detectedEncoder?: string;
 }
 
 export class ProcessSingleImageModal extends Modal {
@@ -61,9 +64,10 @@ export class ProcessSingleImageModal extends Modal {
                 allowLargerFiles: this.plugin.settings.allowLargerFiles,
                 pngquantExecutablePath: pngQuantPreset?.pngquantExecutablePath || "",
                 pngquantQuality: pngQuantPreset?.pngquantQuality || "",
-                ffmpegExecutablePath: avifPreset?.ffmpegExecutablePath || "",
+                ffmpegExecutablePath: avifPreset?.ffmpegExecutablePath || this.plugin.settings.ffmpegExecutablePath || "",
                 ffmpegCrf: avifPreset?.ffmpegCrf !== undefined ? avifPreset.ffmpegCrf : (this.plugin.settings.ffmpegCrf !== undefined ? this.plugin.settings.ffmpegCrf : 23),
                 ffmpegPreset: avifPreset?.ffmpegPreset || this.plugin.settings.ffmpegPreset || "medium",
+                detectedEncoder: avifPreset?.detectedEncoder || this.plugin.settings.detectedEncoder,
             };
         }
     }
@@ -215,58 +219,301 @@ export class ProcessSingleImageModal extends Modal {
         }
 
         if (this.modalSettings.outputFormat === "AVIF") {
+            let ffmpegPathInput: HTMLInputElement | undefined;
+            let encoderDetectionButtonEl: HTMLButtonElement | undefined;
+            let crfTextInput: HTMLInputElement | undefined;
+            let presetSelectEl: HTMLSelectElement | undefined;
+
+            type AvifEncoder = keyof typeof ENCODER_CONFIGS;
+
+            const defaultPresetNames = [
+                "ultrafast",
+                "superfast",
+                "veryfast",
+                "faster",
+                "fast",
+                "medium",
+                "slow",
+                "slower",
+                "veryslow",
+                "placebo"
+            ];
+
+            const buildEncoderDesc = (prefix: string, encoderLabel: string, suffix: string): DocumentFragment => {
+                const fragment = document.createDocumentFragment();
+                const prefixSpan = document.createElement("span");
+                prefixSpan.textContent = prefix;
+                const encoderSpan = document.createElement("span");
+                encoderSpan.textContent = encoderLabel;
+                encoderSpan.className = "image-converter-encoder-highlight";
+                const suffixSpan = document.createElement("span");
+                suffixSpan.textContent = suffix;
+                fragment.append(prefixSpan, encoderSpan, suffixSpan);
+                return fragment;
+            };
+
+            const updateEncoderConfig = (encoder: AvifEncoder | undefined) => {
+                if (!encoder) {
+                    return;
+                }
+
+                const encoderInfo = ENCODER_CONFIGS[encoder];
+                if (!encoderInfo) {
+                    return;
+                }
+
+                const platformHint = encoderInfo ? ` (${encoderInfo.platformHint})` : "";
+                encoderDetectionSetting.setDesc(
+                    buildEncoderDesc(
+                        "Working encoder: ",
+                        `${encoder}${platformHint}`,
+                        `. CRF range: ${encoderInfo.crfMin}-${encoderInfo.crfMax}`
+                    )
+                );
+                encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
+                encoderDetectionButtonEl?.classList.add("image-converter-encoder-detected");
+
+                crfSetting.setDesc(
+                    buildEncoderDesc(
+                        "Constant rate factor for ",
+                        `${encoder}${platformHint}`,
+                        ` (${encoderInfo.crfMin}-${encoderInfo.crfMax}, lower is better quality).`
+                    )
+                );
+                crfSetting.settingEl.addClass("image-converter-encoder-detected");
+
+                if (encoderInfo.supportsPreset && encoderInfo.presetNames && presetSelectEl) {
+                    presetSetting.settingEl.show();
+                    presetSetting.setDesc(`Encoding preset for ${encoder} (speed vs. compression).`);
+                    presetSelectEl.innerHTML = "";
+                    encoderInfo.presetNames.forEach(presetName => {
+                        const option = document.createElement("option");
+                        option.value = presetName;
+                        option.text = presetName;
+                        presetSelectEl?.appendChild(option);
+                    });
+                    const currentPreset = this.modalSettings.ffmpegPreset || encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                    presetSelectEl.value = encoderInfo.presetNames.includes(currentPreset) ? currentPreset : encoderInfo.presetNames[Math.floor(encoderInfo.presetNames.length / 2)];
+                    this.modalSettings.ffmpegPreset = presetSelectEl.value;
+                } else if (presetSelectEl) {
+                    presetSetting.settingEl.hide();
+                }
+
+                if (crfTextInput) {
+                    const currentCrf = this.modalSettings.ffmpegCrf;
+                    const clampedCrf = Math.max(encoderInfo.crfMin, Math.min(encoderInfo.crfMax, currentCrf));
+                    if (clampedCrf !== currentCrf) {
+                        this.modalSettings.ffmpegCrf = clampedCrf;
+                        crfTextInput.value = clampedCrf.toString();
+                    }
+                }
+            };
+
+            const resetEncoderUi = () => {
+                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                encoderDetectionSetting.setDesc("Detect and validate working AV1 encoder by running a test encode. This ensures hardware encoders are actually available on your system.");
+                encoderDetectionSetting.settingEl.removeClass("image-converter-encoder-detected");
+                encoderDetectionButtonEl?.classList.remove("image-converter-encoder-detected");
+                crfSetting.settingEl.removeClass("image-converter-encoder-detected");
+                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                crfSetting.setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see the specific range.");
+                if (presetSelectEl) {
+                    presetSetting.settingEl.show();
+                    // eslint-disable-next-line obsidianmd/ui/sentence-case
+                    presetSetting.setDesc("Encoding preset (speed vs. compression).");
+                    presetSelectEl.innerHTML = "";
+                    defaultPresetNames.forEach(presetName => {
+                        const option = document.createElement("option");
+                        option.value = presetName;
+                        option.text = presetName;
+                        presetSelectEl?.appendChild(option);
+                    });
+                    presetSelectEl.value = this.modalSettings.ffmpegPreset || "medium";
+                }
+            };
+
+            const updateFfmpegPath = (value: string) => {
+                const normalizedPath = normalizeExecutablePath(value);
+                if (currentPreset) {
+                    currentPreset.ffmpegExecutablePath = normalizedPath;
+                }
+                this.modalSettings.ffmpegExecutablePath = normalizedPath;
+                this.plugin.settings.ffmpegExecutablePath = normalizedPath;
+                if (ffmpegPathInput && ffmpegPathInput.value !== normalizedPath) {
+                    ffmpegPathInput.value = normalizedPath;
+                }
+            };
+
             new Setting(this.conversionSettingsContainer)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case
                 .setName("FFmpeg executable path 🛈")
                 .setTooltip("Provide full-path to the binary file. It can be inside vault or anywhere in your file system.")
+                .addButton(button => {
+                    button
+                        .setIcon("search")
+                        // eslint-disable-next-line obsidianmd/ui/sentence-case
+                        .setTooltip("Auto-detect FFmpeg")
+                        .onClick(async () => {
+                            button.setDisabled(true);
+                            try {
+                                const detectedPath = await findFfmpegExecutablePath(this.app);
+                                if (!detectedPath) {
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                    new Notice("FFmpeg not found. Try installing via: Homebrew (macOS), Chocolatey (Windows), or apt/snap (Linux). Then set the path manually.", 8000);
+                                    return;
+                                }
+                                updateFfmpegPath(detectedPath);
+                                void this.plugin.saveSettings();
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                new Notice("FFmpeg path detected and saved.", 4000);
+                            } catch (error) {
+                                const message = this.getErrorMessage(error);
+                                console.error("FFmpeg auto-detection failed:", message);
+                                new Notice(`FFmpeg auto-detection failed: ${message}`);
+                            } finally {
+                                button.setDisabled(false);
+                            }
+                        });
+                })
                 .addText(text => {
+                    ffmpegPathInput = text.inputEl;
                     text.setValue(this.modalSettings.ffmpegExecutablePath)
                         .onChange(async value => {
-                            if (currentPreset) {
-                                currentPreset.ffmpegExecutablePath = value;
-                            }
-                            this.modalSettings.ffmpegExecutablePath = value;
+                            updateFfmpegPath(value);
+                            void this.plugin.saveSettings();
                             // NO PREVIEW for AVIF
                         });
                     text.inputEl.setAttr('spellcheck', 'false');
                 });
 
-            new Setting(this.conversionSettingsContainer)
+            const encoderDetectionSetting = new Setting(this.conversionSettingsContainer)
+                .setName("Encoder detection")
                 // eslint-disable-next-line obsidianmd/ui/sentence-case
-                .setName("FFmpeg CRF")
-                .setDesc("Lower values mean better quality (larger file size). 0 is lossless.")
-                .addSlider(slider => {
-                    slider.setLimits(0, 63, 1)
-                        .setValue(this.modalSettings.ffmpegCrf)
-                        .setDynamicTooltip()
-                        .onChange(async (value) => {
-                            this.modalSettings.ffmpegCrf = value;
-                            // NO PREVIEW for AVIF
+                .setDesc("Detect and validate working AV1 encoder by running a test encode. This ensures hardware encoders are actually available on your system.")
+                .addButton(button => {
+                    encoderDetectionButtonEl = button.buttonEl;
+                    button
+                        .setButtonText("Detect encoder")
+                        .setCta()
+                        .onClick(async () => {
+                            if (!this.modalSettings.ffmpegExecutablePath) {
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                new Notice("Please specify FFmpeg executable path first");
+                                return;
+                            }
+
+                            button.setButtonText("Validating...");
+                            button.setDisabled(true);
+
+                            try {
+                                const processor = new ImageProcessor(this.plugin.supportedImageFormats);
+                                const encoder = await processor.detectAvifEncoder(this.modalSettings.ffmpegExecutablePath, this.modalSettings.detectedEncoder);
+
+                                if (encoder) {
+                                    const encoderInfo = ENCODER_CONFIGS[encoder];
+                                    const platformHint = encoderInfo ? ` (${encoderInfo.platformHint})` : "";
+                                    new Notice(`✓ Working encoder: ${encoder}${platformHint}`, 5000);
+
+                                    this.modalSettings.detectedEncoder = encoder;
+                                    if (currentPreset) {
+                                        currentPreset.detectedEncoder = encoder;
+                                    }
+                                    this.plugin.settings.detectedEncoder = encoder;
+                                    void this.plugin.saveSettings();
+
+                                    updateEncoderConfig(encoder);
+                                } else {
+                                    const cachedEncoder = this.modalSettings.detectedEncoder as AvifEncoder | undefined;
+                                    const cachedInfo = cachedEncoder ? ENCODER_CONFIGS[cachedEncoder] : undefined;
+                                    if (cachedEncoder && cachedInfo) {
+                                        const platformHint = cachedInfo ? ` (${cachedInfo.platformHint})` : "";
+                                        new Notice(`Encoder detection failed. Using cached encoder: ${cachedEncoder}${platformHint}`, 5000);
+                                        updateEncoderConfig(cachedEncoder);
+                                        return;
+                                    }
+
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                    new Notice("No working AV1 encoder found. Install FFmpeg with AV1 support.", 5000);
+                                    resetEncoderUi();
+                                }
+                            } catch (error) {
+                                console.error("Encoder detection error:", error);
+                                new Notice(`Error detecting encoder: ${error instanceof Error ? error.message : String(error)}`);
+                            } finally {
+                                button.setButtonText("Detect encoder");
+                                button.setDisabled(false);
+                            }
                         });
                 });
 
-            new Setting(this.conversionSettingsContainer)
+            const crfSetting = new Setting(this.conversionSettingsContainer)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case
-                .setName("FFmpeg Preset")
-                .addDropdown(dropdown => {
-                    dropdown.addOptions({
-                        "ultrafast": "ultrafast",
-                        "superfast": "superfast",
-                        "veryfast": "veryfast",
-                        "faster": "faster",
-                        "fast": "fast",
-                        "medium": "medium",
-                        "slow": "slow",
-                        "slower": "slower",
-                        "veryslow": "veryslow",
-                        "placebo": "placebo",
-                    });
-                    dropdown.setValue(this.modalSettings.ffmpegPreset);
-                    dropdown.onChange(async (value) => {
-                        this.modalSettings.ffmpegPreset = value;
-                        // NO PREVIEW for AVIF
-                    });
+                .setName("FFmpeg CRF")
+                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see the specific range.")
+                .addText((text) => {
+                    text.setValue(this.modalSettings.ffmpegCrf?.toString() || "")
+                        .onChange(value => {
+                            const parsedValue = parseInt(value, 10);
+                            if (Number.isNaN(parsedValue)) {
+                                return;
+                            }
+                            const encoder = this.modalSettings.detectedEncoder as AvifEncoder | undefined;
+                            const encoderInfo = encoder ? ENCODER_CONFIGS[encoder] : undefined;
+                            const clampedCrf = encoderInfo ? Math.max(encoderInfo.crfMin, Math.min(encoderInfo.crfMax, parsedValue)) : parsedValue;
+                            this.modalSettings.ffmpegCrf = clampedCrf;
+                            if (currentPreset) {
+                                currentPreset.ffmpegCrf = clampedCrf;
+                            }
+                            this.plugin.settings.ffmpegCrf = clampedCrf;
+                            if (clampedCrf !== parsedValue) {
+                                text.setValue(clampedCrf.toString());
+                            }
+                            void this.plugin.saveSettings();
+                        });
+                    text.inputEl.setAttr('spellcheck', 'false');
+                    crfTextInput = text.inputEl;
                 });
+
+            const presetSetting = new Setting(this.conversionSettingsContainer)
+                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                .setName("FFmpeg preset")
+                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                .setDesc("Encoding preset (speed vs. compression).")
+                .addDropdown(dropdown => {
+                    dropdown.addOptions(
+                        defaultPresetNames.reduce((options, presetName) => ({
+                            ...options,
+                            [presetName]: presetName
+                        }), {} as Record<string, string>)
+                    );
+                    dropdown.setValue(this.modalSettings.ffmpegPreset || "medium");
+                    dropdown.onChange(value => {
+                        this.modalSettings.ffmpegPreset = value;
+                        if (currentPreset) {
+                            currentPreset.ffmpegPreset = value;
+                        }
+                        this.plugin.settings.ffmpegPreset = value;
+                        void this.plugin.saveSettings();
+                    });
+                    presetSelectEl = dropdown.selectEl;
+                });
+
+            const cachedEncoder = this.modalSettings.detectedEncoder as AvifEncoder | undefined;
+            if (cachedEncoder) {
+                updateEncoderConfig(cachedEncoder);
+            } else {
+                resetEncoderUi();
+            }
+
+            if (currentPreset) {
+                currentPreset.ffmpegExecutablePath = this.modalSettings.ffmpegExecutablePath;
+                currentPreset.ffmpegCrf = this.modalSettings.ffmpegCrf;
+                currentPreset.ffmpegPreset = this.modalSettings.ffmpegPreset;
+                if (this.modalSettings.detectedEncoder) {
+                    currentPreset.detectedEncoder = this.modalSettings.detectedEncoder;
+                }
+            }
         }
     }
 
@@ -507,9 +754,6 @@ export class ProcessSingleImageModal extends Modal {
             } else {
                 // All other conversion cases (WEBP, JPEG, PNG, etc.)
                 // Pass pngquant settings if applicable
-                const avifPreset = this.plugin.settings.conversionPresets.find(
-                    preset => preset.outputFormat === "AVIF"
-                );
                 processedImageBuffer = await this.plugin.imageProcessor.processImage(
                     imageFile,
                     this.modalSettings.outputFormat,
@@ -547,9 +791,10 @@ export class ProcessSingleImageModal extends Modal {
                         enlargeOrReduce: "Auto",
                         allowLargerFiles: false,
                         skipConversionPatterns: "",
-                        ffmpegExecutablePath: avifPreset?.ffmpegExecutablePath || "",
+                        ffmpegExecutablePath: this.modalSettings.ffmpegExecutablePath,
                         ffmpegCrf: this.modalSettings.ffmpegCrf,
                         ffmpegPreset: this.modalSettings.ffmpegPreset,
+                        detectedEncoder: this.modalSettings.detectedEncoder,
                     } : undefined,
                     this.plugin.settings
                 );

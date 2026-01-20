@@ -15,6 +15,7 @@ import { LinkFormat, PathFormat, LinkFormatSettings, LinkFormatPreset } from "./
 import { NonDestructiveResizeSettings, NonDestructiveResizePreset, ResizeDimension, ResizeScaleMode, ResizeUnits } from "./NonDestructiveResizeSettings";
 import { ToolPreset } from "./ImageAnnotation";
 import { SingleImageModalSettings } from './ProcessSingleImageModal';
+import { findFfmpegExecutablePath, normalizeExecutablePath } from "./utils/ffmpegPath";
 
 import Sortable from "sortablejs";
 
@@ -2257,6 +2258,8 @@ export class ImageConverterSettingTab extends PluginSettingTab {
 
         // Insert AVIF settings after Output Format
         if (preset.outputFormat === "AVIF") {
+            let textComponent: TextComponent | undefined;
+
             const buildEncoderDesc = (prefix: string, encoderLabel: string, suffix: string): DocumentFragment => {
                 const fragment = document.createDocumentFragment();
                 const prefixSpan = document.createElement("span");
@@ -2270,17 +2273,60 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                 return fragment;
             };
 
-            let setEncoderDetectionDesc: (encoderLabel: string, crfMin?: number, crfMax?: number) => void;
-            let setCrfDesc: (encoderLabel: string, crfMin?: number, crfMax?: number) => void;
             const executablePathSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name
                 .setName("FFmpeg executable path 🛈")
                 .setTooltip("Provide full-path to the binary file. It can be inside vault or anywhere in your file system.")
                 .setClass("image-converter-ffmpeg-executable-path")
+                .addButton(button => {
+                    button
+                        .setIcon("search")
+                        // eslint-disable-next-line obsidianmd/ui/sentence-case -- FFmpeg is the official brand name
+                        .setTooltip("Auto-detect FFmpeg")
+                        .setClass("image-converter-icon-button")
+                        .onClick(async () => {
+                            button.setDisabled(true);
+                            try {
+                                const detectedPath = await findFfmpegExecutablePath(this.app);
+                                if (!detectedPath) {
+                                    // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                    new Notice("FFmpeg not found. Try installing via: Homebrew (macOS), Chocolatey (Windows), or apt/snap (Linux). Then set the path manually.", 8000);
+                                    return;
+                                }
+
+                                const normalizedPath = normalizeExecutablePath(detectedPath);
+                                preset.ffmpegExecutablePath = normalizedPath;
+                                this.plugin.settings.ffmpegExecutablePath = normalizedPath;
+                                if (this.plugin.settings.singleImageModalSettings) {
+                                    this.plugin.settings.singleImageModalSettings.ffmpegExecutablePath = normalizedPath;
+                                }
+                                void this.plugin.saveSettings();
+
+                                textComponent?.setValue(normalizedPath);
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                new Notice("FFmpeg path detected and saved.", 4000);
+                            } catch (error) {
+                                const message = error instanceof Error ? error.message : String(error);
+                                console.error("FFmpeg auto-detection failed:", message);
+                                new Notice(`FFmpeg auto-detection failed: ${message}`);
+                            } finally {
+                                button.setDisabled(false);
+                            }
+                        });
+                })
                 .addText(text => {
+                    textComponent = text;
                     text.setValue(preset.ffmpegExecutablePath || "")
                         .onChange(value => {
-                            preset.ffmpegExecutablePath = value;
+                            const normalizedPath = normalizeExecutablePath(value);
+                            preset.ffmpegExecutablePath = normalizedPath;
+                            this.plugin.settings.ffmpegExecutablePath = normalizedPath;
+                            if (this.plugin.settings.singleImageModalSettings) {
+                                this.plugin.settings.singleImageModalSettings.ffmpegExecutablePath = normalizedPath;
+                            }
+                            if (normalizedPath !== value) {
+                                text.setValue(normalizedPath);
+                            }
                             void this.plugin.saveSettings();
                         });
                     text.inputEl.setAttr('spellcheck', 'false');
@@ -2316,9 +2362,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                                 type AvifEncoder = keyof typeof ENCODER_CONFIGS;
                                 const processor = new ImageProcessor(this.plugin.supportedImageFormats);
                                 
-                                // Use reflection to access private method (for settings UI only)
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- Accessing private method for UI
-                                const encoder = await (processor as any).detectAvifEncoder(preset.ffmpegExecutablePath, preset.detectedEncoder) as AvifEncoder | null;
+                                const encoder = await processor.detectAvifEncoder(preset.ffmpegExecutablePath, preset.detectedEncoder);
                                 
                                 if (encoder) {
                                     const encoderInfo = ENCODER_CONFIGS[encoder];
@@ -2328,13 +2372,13 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                                     // Save detected encoder to preset (persists in data.json)
                                     preset.detectedEncoder = encoder;
                                     void this.plugin.saveSettings();
-                                     
-                                    setEncoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo?.crfMin, encoderInfo?.crfMax);
+                                    
+                                    encoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo?.crfMin, encoderInfo?.crfMax);
                                     encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
                                     encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
                                     
                                     // Update CRF description with the detected encoder's range
-                                    setCrfDesc(encoder, encoderInfo?.crfMin, encoderInfo?.crfMax);
+                                    crfDesc(encoder, encoderInfo?.crfMin, encoderInfo?.crfMax);
                                     crfSetting.settingEl.addClass("image-converter-encoder-detected");
                                     
                                     // Show/hide preset setting based on encoder support
@@ -2374,10 +2418,10 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                                         }
                                         const platformHint = cachedInfo ? ` (${cachedInfo.platformHint})` : '';
                                         new Notice(`Encoder detection failed. Using cached encoder: ${cachedEncoder}${platformHint}`, 5000);
-                                        setEncoderDetectionDesc(`${cachedEncoder}${platformHint}`, cachedInfo.crfMin, cachedInfo.crfMax);
+                                        encoderDetectionDesc(`${cachedEncoder}${platformHint}`, cachedInfo.crfMin, cachedInfo.crfMax);
                                         encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
                                         encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
-                                        setCrfDesc(cachedEncoder, cachedInfo.crfMin, cachedInfo.crfMax);
+                                        crfDesc(cachedEncoder, cachedInfo.crfMin, cachedInfo.crfMax);
                                         crfSetting.settingEl.addClass("image-converter-encoder-detected");
 
                                         if (cachedInfo.supportsPreset && cachedInfo.presetNames) {
@@ -2446,8 +2490,8 @@ export class ImageConverterSettingTab extends PluginSettingTab {
             const crfSetting = new Setting(containerEl)
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Product name and acronym
                 .setName("FFmpeg CRF")
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Technical term (AVIF)
-                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see specific range.")
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Button label includes acronym
+                .setDesc("Constant rate factor for AVIF (0-63, lower is better quality). Range varies by encoder - click 'Detect encoder' to see the specific range.")
                 .setClass("image-converter-ffmpeg-crf")
                 .addText((text) => { // Keep as TextComponent for numeric input
                     text.setValue(preset.ffmpegCrf?.toString() || "")
@@ -2458,7 +2502,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                         });
                     text.inputEl.setAttr('spellcheck', 'false');
                 });
-            setEncoderDetectionDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
+            const encoderDetectionDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
                 encoderDetectionSetting.setDesc(
                     buildEncoderDesc(
                         "Working encoder: ",
@@ -2468,7 +2512,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                 );
             };
 
-            setCrfDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
+            const crfDesc = (encoderLabel: string, crfMin?: number, crfMax?: number) => {
                 crfSetting.setDesc(
                     buildEncoderDesc(
                         "Constant rate factor for ",
@@ -2525,10 +2569,10 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                     }
 
                     const platformHint = encoderInfo ? ` (${encoderInfo.platformHint})` : '';
-                    setEncoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo.crfMin, encoderInfo.crfMax);
+                    encoderDetectionDesc(`${encoder}${platformHint}`, encoderInfo.crfMin, encoderInfo.crfMax);
                     encoderDetectionSetting.settingEl.addClass("image-converter-encoder-detected");
                     encoderDetectionButton?.buttonEl?.addClass("image-converter-encoder-detected");
-                    setCrfDesc(encoder, encoderInfo.crfMin, encoderInfo.crfMax);
+                    crfDesc(encoder, encoderInfo.crfMin, encoderInfo.crfMax);
                     crfSetting.settingEl.addClass("image-converter-encoder-detected");
 
                     if (encoderInfo.supportsPreset && encoderInfo.presetNames) {
