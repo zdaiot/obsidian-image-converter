@@ -25,7 +25,8 @@ interface Dimensions {
 }
 
 // AVIF encoder types and configuration
-export type AvifEncoder = 'libaom-av1' | 'libsvtav1' | 'av1_nvenc' | 'av1_qsv' | 'av1_amf' | 'av1_vaapi' | 'av1_videotoolbox' | 'av1_mf';
+// Note: av1_videotoolbox removed as it's not available in FFmpeg 8.0.1
+export type AvifEncoder = 'libaom-av1' | 'libsvtav1' | 'av1_nvenc' | 'av1_qsv' | 'av1_amf' | 'av1_vaapi' | 'av1_mf';
 
 interface EncoderConfig {
     name: AvifEncoder;
@@ -34,6 +35,7 @@ interface EncoderConfig {
     supportsPreset: boolean;
     useCpuUsed?: boolean; // libaom-av1 uses -cpu-used instead of -preset
     presetNames?: string[]; // Valid preset names for this encoder
+    supportsStillPicture?: boolean; // Whether encoder supports -still-picture flag
     platformHint: 'software' | 'nvidia' | 'intel' | 'amd' | 'apple' | 'vaapi' | 'mediafoundation';
 }
 
@@ -46,6 +48,7 @@ export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
         supportsPreset: true,
         useCpuUsed: true, // libaom uses -cpu-used (0-8) not -preset
         presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // 0=slowest/best, 8=fastest
+        supportsStillPicture: true, // libaom-av1 supports -still-picture
         platformHint: 'software' 
     },
     'libsvtav1': { 
@@ -54,6 +57,7 @@ export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
         crfMax: 63, 
         supportsPreset: true,
         presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'], // 0=slowest/best, 13=fastest/lowest
+        supportsStillPicture: false, // libsvtav1 does not support -still-picture
         platformHint: 'software' 
     },
     'av1_nvenc': { 
@@ -62,13 +66,14 @@ export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
         crfMax: 51, 
         supportsPreset: true,
         presetNames: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], // p1=fastest, p7=slowest/best
+        supportsStillPicture: false, // Hardware encoders typically don't support -still-picture
         platformHint: 'nvidia' 
     },
-    'av1_qsv': { name: 'av1_qsv', crfMin: 0, crfMax: 51, supportsPreset: false, platformHint: 'intel' },
-    'av1_amf': { name: 'av1_amf', crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'amd' },
-    'av1_vaapi': { name: 'av1_vaapi', crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'vaapi' },
-    'av1_videotoolbox': { name: 'av1_videotoolbox', crfMin: 0, crfMax: 100, supportsPreset: false, platformHint: 'apple' },
-    'av1_mf': { name: 'av1_mf', crfMin: 0, crfMax: 100, supportsPreset: false, platformHint: 'mediafoundation' }
+    'av1_qsv': { name: 'av1_qsv', crfMin: 0, crfMax: 51, supportsPreset: false, supportsStillPicture: false, platformHint: 'intel' },
+    'av1_amf': { name: 'av1_amf', crfMin: 0, crfMax: 255, supportsPreset: false, supportsStillPicture: false, platformHint: 'amd' },
+    'av1_vaapi': { name: 'av1_vaapi', crfMin: 0, crfMax: 255, supportsPreset: false, supportsStillPicture: false, platformHint: 'vaapi' },
+    'av1_mf': { name: 'av1_mf', crfMin: 0, crfMax: 100, supportsPreset: false, supportsStillPicture: false, platformHint: 'mediafoundation' }
+    // Note: av1_videotoolbox removed as it's not available in FFmpeg 8.0.1
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
@@ -152,12 +157,8 @@ export class ImageProcessor {
                 // Priority order based on platform and performance
                 const candidateEncoders: AvifEncoder[] = [];
 
-                // macOS: Check for VideoToolbox hardware encoder first
-                if (Platform.isMacOS && output.includes('av1_videotoolbox')) {
-                    candidateEncoders.push('av1_videotoolbox');
-                }
-
-                // Windows/Linux: Check for hardware encoders
+                // Windows/Linux/macOS: Check for hardware encoders
+                // Note: av1_videotoolbox is not available in FFmpeg as of version 8.0.1
                 if (output.includes('av1_nvenc')) {
                     candidateEncoders.push('av1_nvenc'); // NVIDIA
                 }
@@ -240,11 +241,12 @@ export class ImageProcessor {
             const normalizedPath = normalizeExecutablePath(executablePath);
             
             try {
-                // Fast preflight check: encode a tiny 16x16 black frame
+                // Fast preflight check: encode a tiny 64x64 black frame
+                // Note: 16x16 causes libsvtav1 to hang due to minimum size requirements
                 const args = [
                     '-hide_banner',
                     '-f', 'lavfi',
-                    '-i', 'color=c=black:s=16x16:d=0.1:r=1',
+                    '-i', 'color=c=black:s=64x64:d=0.1:r=1',
                     '-frames:v', '1',
                     '-c:v', encoder,
                     '-f', 'null',
@@ -960,8 +962,12 @@ if (format === 'ORIGINAL') {
                     }
                 }
 
+                // Add -still-picture flag only for encoders that support it
+                if (encoderConfig.supportsStillPicture) {
+                    args.push('-still-picture', '1');
+                }
+                
                 args.push(
-                    '-still-picture', '1',
                     '-y',
                     '-f', 'avif',
                     tempFilePath
@@ -993,8 +999,12 @@ if (format === 'ORIGINAL') {
                     }
                 }
 
+                // Add -still-picture flag only for encoders that support it
+                if (encoderConfig.supportsStillPicture) {
+                    args.push('-still-picture', '1');
+                }
+                
                 args.push(
-                    '-still-picture', '1',
                     '-pix_fmt', 'yuv420p',         // Explicit pixel format
                     '-y',
                     '-f', 'avif',

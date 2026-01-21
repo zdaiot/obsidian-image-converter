@@ -114,23 +114,7 @@ describe('Unit: ImageProcessor AVIF Encoder Detection', () => {
       expect(firstCall[0]).toBe('C:\\ffmpeg\\bin\\ffmpeg.exe');
     });
 
-    it('should detect av1_videotoolbox on macOS', async () => {
-      // Arrange
-      const { spawn } = await import('child_process');
-      // eslint-disable-next-line @typescript-eslint/naming-convention -- Obsidian API export
-      const { Platform } = await import('obsidian');
-      
-      // Mock macOS platform
-      Object.defineProperty(Platform, 'isMacOS', { value: true, configurable: true });
-      
-      (spawn as any).mockImplementation(mockSpawnWithValidation('V....D av1_videotoolbox     AV1 (VideoToolbox acceleration)'));
-
-      // Act
-      const encoder = await (processor as any).detectAvifEncoder('/usr/local/bin/ffmpeg');
-
-      // Assert
-      expect(encoder).toBe('av1_videotoolbox');
-    });
+    // Note: av1_videotoolbox test removed as it's not available in FFmpeg 8.0.1
 
     it('should detect av1_qsv hardware encoder (Intel)', async () => {
       // Arrange
@@ -331,13 +315,7 @@ describe('Unit: ImageProcessor AVIF Encoder Detection', () => {
       expect(validatedCrf).toBe(255);
     });
 
-    it('should handle av1_videotoolbox range (0-100)', () => {
-      // Act
-      const validatedCrf = (processor as any).validateCrf(80, 'av1_videotoolbox');
-
-      // Assert
-      expect(validatedCrf).toBe(80);
-    });
+    // Note: av1_videotoolbox test removed as it's not available in FFmpeg 8.0.1
   });
 
   describe('ENCODER_CONFIGS', () => {
@@ -359,14 +337,7 @@ describe('Unit: ImageProcessor AVIF Encoder Detection', () => {
       expect(config.platformHint).toBe('nvidia');
     });
 
-    it('should have correct configuration for av1_videotoolbox', () => {
-      const config = ENCODER_CONFIGS['av1_videotoolbox'];
-      
-      expect(config.crfMin).toBe(0);
-      expect(config.crfMax).toBe(100);
-      expect(config.supportsPreset).toBe(false);
-      expect(config.platformHint).toBe('apple');
-    });
+    // Note: av1_videotoolbox test removed as it's not available in FFmpeg 8.0.1
 
     it('should have correct configuration for av1_qsv', () => {
       const config = ENCODER_CONFIGS['av1_qsv'];
