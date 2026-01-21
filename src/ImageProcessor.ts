@@ -29,51 +29,45 @@ interface Dimensions {
 export type AvifEncoder = 'libaom-av1' | 'libsvtav1' | 'av1_nvenc' | 'av1_qsv' | 'av1_amf' | 'av1_vaapi' | 'av1_mf';
 
 interface EncoderConfig {
-    name: AvifEncoder;
     crfMin: number;
     crfMax: number;
     supportsPreset: boolean;
     useCpuUsed?: boolean; // libaom-av1 uses -cpu-used instead of -preset
     presetNames?: string[]; // Valid preset names for this encoder
-    supportsStillPicture?: boolean; // Whether encoder supports -still-picture flag
-    platformHint: 'software' | 'nvidia' | 'intel' | 'amd' | 'apple' | 'vaapi' | 'mediafoundation';
+    supportsStillPicture?: boolean; // Whether encoder supports -still-picture flag (defaults to false)
+    platformHint: 'software' | 'nvidia' | 'intel' | 'amd' | 'vaapi' | 'mediafoundation';
 }
 
 /* eslint-disable @typescript-eslint/naming-convention -- FFmpeg encoder names use underscores and hyphens */
 export const ENCODER_CONFIGS: Record<AvifEncoder, EncoderConfig> = {
     'libaom-av1': { 
-        name: 'libaom-av1', 
         crfMin: 0, 
         crfMax: 63, 
         supportsPreset: true,
-        useCpuUsed: true, // libaom uses -cpu-used (0-8) not -preset
-        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8'], // 0=slowest/best, 8=fastest
-        supportsStillPicture: true, // libaom-av1 supports -still-picture
+        useCpuUsed: true,
+        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8'],
+        supportsStillPicture: true,
         platformHint: 'software' 
     },
     'libsvtav1': { 
-        name: 'libsvtav1', 
         crfMin: 0, 
         crfMax: 63, 
         supportsPreset: true,
-        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'], // 0=slowest/best, 13=fastest/lowest
-        supportsStillPicture: false, // libsvtav1 does not support -still-picture
+        presetNames: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'],
         platformHint: 'software' 
     },
     'av1_nvenc': { 
-        name: 'av1_nvenc', 
         crfMin: 0, 
         crfMax: 51, 
         supportsPreset: true,
-        presetNames: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'], // p1=fastest, p7=slowest/best
-        supportsStillPicture: false, // Hardware encoders typically don't support -still-picture
+        presetNames: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'],
         platformHint: 'nvidia' 
     },
-    'av1_qsv': { name: 'av1_qsv', crfMin: 0, crfMax: 51, supportsPreset: false, supportsStillPicture: false, platformHint: 'intel' },
-    'av1_amf': { name: 'av1_amf', crfMin: 0, crfMax: 255, supportsPreset: false, supportsStillPicture: false, platformHint: 'amd' },
-    'av1_vaapi': { name: 'av1_vaapi', crfMin: 0, crfMax: 255, supportsPreset: false, supportsStillPicture: false, platformHint: 'vaapi' },
-    'av1_mf': { name: 'av1_mf', crfMin: 0, crfMax: 100, supportsPreset: false, supportsStillPicture: false, platformHint: 'mediafoundation' }
-    // Note: av1_videotoolbox removed as it's not available in FFmpeg 8.0.1
+    // Hardware encoders without preset support
+    'av1_qsv': { crfMin: 0, crfMax: 51, supportsPreset: false, platformHint: 'intel' },
+    'av1_amf': { crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'amd' },
+    'av1_vaapi': { crfMin: 0, crfMax: 255, supportsPreset: false, platformHint: 'vaapi' },
+    'av1_mf': { crfMin: 0, crfMax: 100, supportsPreset: false, platformHint: 'mediafoundation' }
 };
 /* eslint-enable @typescript-eslint/naming-convention */
 
@@ -437,6 +431,25 @@ export class ImageProcessor {
         // Default to 4 (medium) if unknown
         console.warn(`Unknown preset '${preset}' for libaom-av1, using cpu-used=4 (medium)`);
         return '4';
+    }
+
+    /**
+     * Adds encoder-specific FFmpeg arguments (preset/cpu-used and still-picture flag)
+     * @param args The FFmpeg arguments array to modify
+     * @param encoderConfig The encoder configuration
+     * @param preset The preset value to use
+     */
+    private addEncoderSpecificArgs(args: string[], encoderConfig: EncoderConfig, preset: string): void {
+        if (encoderConfig.supportsPreset) {
+            if (encoderConfig.useCpuUsed) {
+                args.push('-cpu-used', this.mapPresetToCpuUsed(preset));
+            } else {
+                args.push('-preset', preset);
+            }
+        }
+        if (encoderConfig.supportsStillPicture) {
+            args.push('-still-picture', '1');
+        }
     }
 
     /**
@@ -943,35 +956,16 @@ if (format === 'ORIGINAL') {
                     '-filter_complex', filterComplex,
                     '-map', '[c444]',
                     '-map', '[a]',
-                    '-frames:v:0', '1',             // Only process 1 frame for color stream
-                    '-frames:v:1', '1',             // Only process 1 frame for alpha stream
-                    '-c:v', encoder,                // Use detected encoder
+                    '-frames:v:0', '1',
+                    '-frames:v:1', '1',
+                    '-c:v', encoder,
                     '-crf', validatedCrf.toString(),
-                    '-b:v', '0',                    // Force constant quality mode
+                    '-b:v', '0',
                 ];
 
-                // Add preset/cpu-used for encoders that support it
-                if (encoderConfig.supportsPreset) {
-                    if (encoderConfig.useCpuUsed) {
-                        // libaom-av1 uses -cpu-used instead of -preset
-                        // Map common preset names to cpu-used values, or use the value directly
-                        const cpuUsedValue = this.mapPresetToCpuUsed(preset);
-                        args.push('-cpu-used', cpuUsedValue);
-                    } else {
-                        args.push('-preset', preset);
-                    }
-                }
-
-                // Add -still-picture flag only for encoders that support it
-                if (encoderConfig.supportsStillPicture) {
-                    args.push('-still-picture', '1');
-                }
+                this.addEncoderSpecificArgs(args, encoderConfig, preset);
                 
-                args.push(
-                    '-y',
-                    '-f', 'avif',
-                    tempFilePath
-                );
+                args.push('-y', '-f', 'avif', tempFilePath);
             } else {
                 // For images without transparency
                 let filterChain = 'format=yuv420p';
@@ -981,35 +975,16 @@ if (format === 'ORIGINAL') {
 
                 args = [
                     '-i', 'pipe:0',
-                    '-frames:v', '1',              // Safety: Only process 1 frame
+                    '-frames:v', '1',
                     '-filter:v', filterChain,
-                    '-c:v', encoder,               // Use detected encoder
+                    '-c:v', encoder,
                     '-crf', validatedCrf.toString(),
-                    '-b:v', '0',                   // Force constant quality mode
+                    '-b:v', '0',
                 ];
 
-                // Add preset/cpu-used for encoders that support it
-                if (encoderConfig.supportsPreset) {
-                    if (encoderConfig.useCpuUsed) {
-                        // libaom-av1 uses -cpu-used instead of -preset
-                        const cpuUsedValue = this.mapPresetToCpuUsed(preset);
-                        args.push('-cpu-used', cpuUsedValue);
-                    } else {
-                        args.push('-preset', preset);
-                    }
-                }
-
-                // Add -still-picture flag only for encoders that support it
-                if (encoderConfig.supportsStillPicture) {
-                    args.push('-still-picture', '1');
-                }
+                this.addEncoderSpecificArgs(args, encoderConfig, preset);
                 
-                args.push(
-                    '-pix_fmt', 'yuv420p',         // Explicit pixel format
-                    '-y',
-                    '-f', 'avif',
-                    tempFilePath
-                );
+                args.push('-pix_fmt', 'yuv420p', '-y', '-f', 'avif', tempFilePath);
             }
 
             let ffmpeg: ChildProcess | null = null;
