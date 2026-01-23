@@ -78,6 +78,8 @@ export interface ConversionPreset {
     desiredLongestEdge: number;
     enlargeOrReduce: EnlargeReduce;
     allowLargerFiles: boolean;
+    revertToOriginalIfLarger?: boolean;
+    minimumCompressionSavingsInKB?: number;
     skipConversionPatterns: string;
     pngquantExecutablePath?: string;
     pngquantQuality?: string;
@@ -277,6 +279,8 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
             desiredLongestEdge: 1000,
             enlargeOrReduce: "Auto",
             allowLargerFiles: false,
+            revertToOriginalIfLarger: false,
+            minimumCompressionSavingsInKB: 30,
             skipConversionPatterns: "",
             pngquantExecutablePath: "",
             pngquantQuality: "65-80",
@@ -295,6 +299,8 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
             desiredLongestEdge: 1000,
             enlargeOrReduce: "Auto",
             allowLargerFiles: false,
+            revertToOriginalIfLarger: false,
+            minimumCompressionSavingsInKB: 30,
             skipConversionPatterns: "",
             pngquantExecutablePath: "",
             pngquantQuality: "65-80",
@@ -313,6 +319,8 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
             desiredLongestEdge: 1000,
             enlargeOrReduce: "Auto",
             allowLargerFiles: false,
+            revertToOriginalIfLarger: false,
+            minimumCompressionSavingsInKB: 30,
             skipConversionPatterns: "",
             pngquantExecutablePath: "",
             pngquantQuality: "65-80",
@@ -2143,6 +2151,9 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         const revertToOriginalSetting = containerEl.querySelector(
             ".image-converter-revert-to-original"
         );
+        const minSavingsSettingEl = containerEl.querySelector(
+            ".image-converter-min-savings-setting"
+        );
         const pngquantExecutablePathSetting = containerEl.querySelector(".image-converter-pngquant-executable-path");
         const pngquantQualitySetting = containerEl.querySelector(".image-converter-pngquant-quality");
 
@@ -2161,6 +2172,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         desiredLongestEdgeSetting?.remove();
         enlargeOrReduceSetting?.remove();
         revertToOriginalSetting?.remove();
+        minSavingsSettingEl?.remove();
         pngquantExecutablePathSetting?.remove();
         pngquantQualitySetting?.remove();
 
@@ -2766,9 +2778,9 @@ export class ImageConverterSettingTab extends PluginSettingTab {
             .setDesc("If the processed image filesize is larger than the original, use the original image instead. Sometimes compression can increase file size, especially with certain formats or settings, but if you would prefer to always get smaller file sizes, enable this option.")
             .addToggle((toggle) =>
                 toggle
-                    .setValue(this.plugin.settings.revertToOriginalIfLarger)
+                    .setValue(preset.revertToOriginalIfLarger ?? this.plugin.settings.revertToOriginalIfLarger)
                     .onChange(async (value) => {
-                        this.plugin.settings.revertToOriginalIfLarger = value;
+                        preset.revertToOriginalIfLarger = value;
                         await this.plugin.saveSettings();
                         updateMinSavingsVisibility();
                     })
@@ -2782,16 +2794,17 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         const minSavingsSetting = new Setting(containerEl)
             // eslint-disable-next-line obsidianmd/ui/sentence-case
             .setName("Minimum compression savings (KB)")
+            .setClass("image-converter-min-savings-setting")
             // eslint-disable-next-line obsidianmd/ui/sentence-case
             .setDesc("This option allows you to further specify, how much the file size must be reduced before compressing the image. Sometimes an image's size might shrink by only 3 KB, but the visible degradation in quality is significant. This option helps catch those cases and avoids compressing such images. Default is 30kb, which means if after compressing the image file size would reduce only by 30kb or less, then the original image bytes will be used instead. Set to 0 to always allow compression when the output is smaller.")
             .addText((text) =>
                 text
                     .setPlaceholder("30")
-                    .setValue(String(this.plugin.settings.minimumCompressionSavingsInKB))
+                    .setValue(String(preset.minimumCompressionSavingsInKB ?? this.plugin.settings.minimumCompressionSavingsInKB))
                     .onChange(async (value) => {
                         const numValue = Number(value);
                         if (!isNaN(numValue) && numValue >= 0) {
-                            this.plugin.settings.minimumCompressionSavingsInKB = numValue;
+                            preset.minimumCompressionSavingsInKB = numValue;
                             await this.plugin.saveSettings();
                         }
                     })
@@ -2803,7 +2816,7 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         lastAddedSetting = minSavingsSetting.settingEl;
 
         const updateMinSavingsVisibility = () => {
-            if (this.plugin.settings.revertToOriginalIfLarger) {
+            if (preset.revertToOriginalIfLarger ?? this.plugin.settings.revertToOriginalIfLarger) {
                 minSavingsSetting.settingEl.show();
             } else {
                 minSavingsSetting.settingEl.hide();
@@ -3049,6 +3062,8 @@ export class ImageConverterSettingTab extends PluginSettingTab {
                     desiredLongestEdge: 1000,
                     enlargeOrReduce: "Auto",
                     allowLargerFiles: false,
+                    revertToOriginalIfLarger: false,
+                    minimumCompressionSavingsInKB: 30,
                     skipConversionPatterns: "",
                     ffmpegExecutablePath: this.plugin.settings.ffmpegExecutablePath || "",
                     ffmpegCrf: 23,
@@ -3227,6 +3242,12 @@ export class ImageConverterSettingTab extends PluginSettingTab {
 
         if (preset.skipConversionPatterns) {
             addLine(`Skip Patterns: ${preset.skipConversionPatterns}`);
+        }
+        if (preset.revertToOriginalIfLarger) {
+            addLine("Revert to original if larger: Yes");
+            if (preset.minimumCompressionSavingsInKB !== undefined) {
+                addLine(`Minimum compression savings (KB): ${preset.minimumCompressionSavingsInKB}`);
+            }
         }
 
         return fragment;
@@ -4059,6 +4080,10 @@ export class SaveGlobalPresetModal extends Modal {
                                 sectionEl.appendChild(createSummaryItem("Scale", conversionP.enlargeOrReduce));
                             }
                             sectionEl.appendChild(createSummaryItem("Allow larger files", conversionP.allowLargerFiles ? "Yes" : "No"));
+                            if (conversionP.revertToOriginalIfLarger) {
+                                sectionEl.appendChild(createSummaryItem("Revert to original if larger", "Yes"));
+                                sectionEl.appendChild(createSummaryItem("Minimum compression savings (KB)", conversionP.minimumCompressionSavingsInKB));
+                            }
                             sectionEl.appendChild(createSummaryItem("Skip patterns", conversionP.skipConversionPatterns));
                         }
                         break;

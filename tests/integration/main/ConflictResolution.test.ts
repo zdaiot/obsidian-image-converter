@@ -117,8 +117,9 @@ describe('Conflict resolution and overwrite safety (Phase 9: 27.2)', () => {
 
     (plugin as any).settings.modalBehavior = 'never';
     (plugin as any).settings.selectedConversionPreset = 'WEBP (75, no resizing)';
-    (plugin as any).settings.revertToOriginalIfLarger = true;
-    (plugin as any).settings.minimumCompressionSavingsInKB = 1;
+    const selectedPreset = (plugin as any).settings.conversionPresets.find((preset: any) => preset.name === 'WEBP (75, no resizing)');
+    selectedPreset.revertToOriginalIfLarger = true;
+    selectedPreset.minimumCompressionSavingsInKB = 1;
 
     const processedBuffer = new ArrayBuffer(1500);
     (plugin as any).imageProcessor = { processImage: vi.fn(async () => processedBuffer) };
