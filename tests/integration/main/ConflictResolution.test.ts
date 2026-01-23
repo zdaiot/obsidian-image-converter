@@ -108,4 +108,42 @@ describe('Conflict resolution and overwrite safety (Phase 9: 27.2)', () => {
     expect(formatLink).toHaveBeenCalledWith('images/dup.webp', expect.anything(), expect.anything(), expect.anything(), expect.anything());
     expect((editor.replaceRange as any).mock.calls.length).toBe(1);
   });
+
+  it('22.11 minimum savings: when savings below threshold, then original bytes are written to converted path', async () => {
+    const { app, plugin } = setupPluginWithNote();
+
+    await plugin.loadSettings();
+    await plugin.onload();
+
+    (plugin as any).settings.modalBehavior = 'never';
+    (plugin as any).settings.selectedConversionPreset = 'WEBP (75, no resizing)';
+    (plugin as any).settings.revertToOriginalIfLarger = true;
+    (plugin as any).settings.minimumCompressionSavingsInKB = 1;
+
+    const processedBuffer = new ArrayBuffer(1500);
+    (plugin as any).imageProcessor = { processImage: vi.fn(async () => processedBuffer) };
+    (plugin as any).showSizeComparisonNotification = vi.fn();
+    (plugin as any).linkFormatter = { formatLink: vi.fn(async (path: string) => `![](/${path})`) };
+
+    vi.spyOn((plugin as any).folderAndFilenameManagement, 'determineDestination').mockResolvedValue({
+      destinationPath: 'images',
+      newFilename: 'x.webp'
+    });
+
+    const editor = {
+      getCursor: () => ({ line: 0, ch: 0 }),
+      replaceRange: vi.fn(),
+      setCursor: vi.fn(),
+    } as any;
+
+    const file = makeFile('x.png', 'image/png', 2000);
+    const items = [{ kind: 'file', type: 'image/png', file }];
+
+    await (plugin as any).handlePaste(items, editor, { line: 0, ch: 0 });
+
+    const [pathArg, bufferArg] = (app.vault.createBinary as any).mock.calls[0] as [string, ArrayBuffer];
+    expect(pathArg).toBe('images/x.webp');
+    expect(bufferArg.byteLength).toBe(file.size);
+    expect(bufferArg.byteLength).toBeGreaterThan(processedBuffer.byteLength);
+  });
 });

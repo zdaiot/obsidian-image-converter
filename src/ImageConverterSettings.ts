@@ -2763,13 +2763,14 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         const newSetting = new Setting(containerEl)
             .setName("Revert to original if larger")
             .setClass("image-converter-revert-to-original")
-            .setDesc("If the processed image filesize is larger than the original, use the original image instead.")
+            .setDesc("If the processed image filesize is larger than the original, use the original image instead. Sometimes compression can increase file size, especially with certain formats or settings, but if you would prefer to always get smaller file sizes, enable this option.")
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.revertToOriginalIfLarger)
                     .onChange(async (value) => {
                         this.plugin.settings.revertToOriginalIfLarger = value;
                         await this.plugin.saveSettings();
+                        updateMinSavingsVisibility();
                     })
             );
         lastAddedSetting.insertAdjacentElement(
@@ -2779,8 +2780,10 @@ export class ImageConverterSettingTab extends PluginSettingTab {
         lastAddedSetting = newSetting.settingEl;
 
         const minSavingsSetting = new Setting(containerEl)
+            // eslint-disable-next-line obsidianmd/ui/sentence-case
             .setName("Minimum compression savings (KB)")
-            .setDesc("If 0, compress whenever size decreases. Otherwise, requires savings > this value (KB). Only effective when 'Revert to original if larger' is enabled.")
+            // eslint-disable-next-line obsidianmd/ui/sentence-case
+            .setDesc("This option lets you set how much the file size must drop before compression is kept. Sometimes an image only shrinks by a few KB but looks worse. Default is 30 KB, which means if the compressed file saves 30 KB or less, the original image data is used instead. Set to 0 to always allow compression when the output is smaller.")
             .addText((text) =>
                 text
                     .setPlaceholder("30")
@@ -2798,6 +2801,16 @@ export class ImageConverterSettingTab extends PluginSettingTab {
             minSavingsSetting.settingEl
         );
         lastAddedSetting = minSavingsSetting.settingEl;
+
+        const updateMinSavingsVisibility = () => {
+            if (this.plugin.settings.revertToOriginalIfLarger) {
+                minSavingsSetting.settingEl.show();
+            } else {
+                minSavingsSetting.settingEl.hide();
+            }
+        };
+
+        updateMinSavingsVisibility();
     }
 
 
