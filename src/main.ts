@@ -546,64 +546,106 @@ new Notice(t('main.notice.failedToReloadSeeConsole'));
                     }
                 }
 
-                // 如果原始图片是 GIF 格式，尝试从原始 URL 下载完整的 GIF 文件（保留动画帧）
-                // 浏览器剪贴板只提供静态的 PNG（GIF 的第一帧），所以需要从源 URL 下载
-                let downloadedGifFile: File | null = null;
-                if (originalImageUrl && originalImageFilename &&
-                    originalImageFilename.toLowerCase().endsWith(".gif")) {
-                    try {
-                        const response = await requestUrl({ url: originalImageUrl });
-                        if (response.status === 200 && response.arrayBuffer.byteLength > 0) {
-                            downloadedGifFile = new File(
-                                [response.arrayBuffer],
-                                originalImageFilename,
-                                { type: "image/gif" }
-                            );
-                        }
-                    } catch (error) {
-                        console.warn("Failed to download original GIF, falling back to clipboard data:", error);
-                        // 下载失败时回退到使用剪贴板中的静态图片
+                // ===== 第一步：同步读取剪贴板数据并判断是否需要处理 =====
+                // 重要：clipboardData 在异步操作后可能不可用（浏览器安全策略），
+                // 且 evt.preventDefault() 必须在同步代码中尽早调用，否则 Obsidian 默认的粘贴行为会先执行。
+
+                // 判断是否为 GIF：通过文件名扩展名或剪贴板中 HTML 内容检测
+                const isGifByFilename = originalImageFilename && originalImageFilename.toLowerCase().endsWith(".gif");
+                const isGifByHtml = htmlData && /\.gif[\s"'?#]|image\/gif/i.test(htmlData);
+                const isLikelyGif = isGifByFilename || isGifByHtml;
+
+                // 同步提取剪贴板中的文件数据（必须在 await 之前完成）
+                const clipboardFiles: { kind: string, type: string, file: File | null }[] = [];
+                for (let i = 0; i < evt.clipboardData.items.length; i++) {
+                    const item = evt.clipboardData.items[i];
+                    let file = item.kind === "file" ? item.getAsFile() : null;
+
+                    // 如果从 HTML 中提取到了原始文件名，且当前 file 使用的是浏览器默认名称，
+                    // 则创建一个带有正确文件名的新 File 对象
+                    if (file && originalImageFilename && /^image\.\w+$/i.test(file.name)) {
+                        // 使用原始 URL 中的文件名，但扩展名以剪贴板文件为准
+                        // 例如：原始是 .gif 但剪贴板中是 .png（静态第一帧），则用 .png 扩展名
+                        const originalExt = originalImageFilename.substring(originalImageFilename.lastIndexOf(".")).toLowerCase();
+                        const fileExt = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+                        const finalName = originalExt === fileExt
+                            ? originalImageFilename
+                            : originalImageFilename.substring(0, originalImageFilename.lastIndexOf(".")) + fileExt;
+                        file = new File([file], finalName, { type: file.type });
                     }
+
+                    clipboardFiles.push({ kind: item.kind, type: item.type, file });
                 }
 
-                // Extract Clipboard Item Information
-                const itemData: { kind: string, type: string, file: File | null }[] = [];
-
-                if (downloadedGifFile) {
-                    // 如果成功下载了 GIF 文件，使用下载的 GIF 替换剪贴板中的静态图片
-                    itemData.push({ kind: "file", type: "image/gif", file: downloadedGifFile });
-                } else {
-                    for (let i = 0; i < evt.clipboardData.items.length; i++) {
-                        const item = evt.clipboardData.items[i];
-                        let file = item.kind === "file" ? item.getAsFile() : null;
-
-                        // 如果从 HTML 中提取到了原始文件名，且当前 file 使用的是浏览器默认名称，
-                        // 则创建一个带有正确文件名的新 File 对象
-                        if (file && originalImageFilename && /^image\.\w+$/i.test(file.name)) {
-                            // 保留原始文件的扩展名（如果原始 URL 文件名扩展名与实际内容类型不同）
-                            const originalExt = originalImageFilename.substring(originalImageFilename.lastIndexOf(".")).toLowerCase();
-                            const fileExt = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-                            // 如果扩展名兼容（例如都是图片类型），使用原始 URL 中的文件名
-                            const finalName = originalExt === fileExt
-                                ? originalImageFilename
-                                : originalImageFilename.substring(0, originalImageFilename.lastIndexOf(".")) + fileExt;
-                            file = new File([file], finalName, { type: file.type });
-                        }
-
-                        itemData.push({ kind: item.kind, type: item.type, file });
-                    }
-                }
-
-                // Check if we should process these items
-                const hasSupportedItems = itemData.some(data =>
+                // 同步检查是否有支持的图片文件
+                const hasSupportedItems = clipboardFiles.some(data =>
                     data.kind === "file" &&
                     data.file &&
                     this.supportedImageFormats.isSupported(data.type, data.file.name) &&
                     !this.folderAndFilenameManagement.matchesPatterns(data.file.name, this.settings.neverProcessFilenames)
                 );
 
-                if (hasSupportedItems) {
-                    evt.preventDefault();
+                // 如果有支持的图片或检测到 GIF，立即阻止 Obsidian 默认粘贴行为
+                if (!hasSupportedItems && !isLikelyGif) {
+                    return; // 没有支持的图片，让 Obsidian 默认处理
+                }
+                evt.preventDefault();
+
+                // ===== 第二步：异步下载 GIF（如果需要） =====
+                // 此时默认行为已被阻止，可以安全地执行异步操作
+                let downloadedGifFile: File | null = null;
+
+                if (originalImageUrl && isLikelyGif) {
+                    try {
+                        const response = await requestUrl({ url: originalImageUrl });
+                        if (response.status === 200 && response.arrayBuffer.byteLength > 0) {
+                            // 验证下载内容是否确实是 GIF 格式（检查 magic bytes: GIF87a 或 GIF89a）
+                            const header = new Uint8Array(response.arrayBuffer, 0, 6);
+                            const isRealGif = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46; // "GIF"
+                            if (isRealGif) {
+                                let gifFilename = originalImageFilename || `image-${Date.now()}.gif`;
+                                if (!gifFilename.toLowerCase().endsWith(".gif")) {
+                                    const dotIndex = gifFilename.lastIndexOf(".");
+                                    gifFilename = (dotIndex > 0 ? gifFilename.substring(0, dotIndex) : gifFilename) + ".gif";
+                                }
+                                downloadedGifFile = new File(
+                                    [response.arrayBuffer],
+                                    gifFilename,
+                                    { type: "image/gif" }
+                                );
+                            }
+                        }
+                    } catch (error) {
+                        console.warn("Failed to download original GIF, falling back to clipboard data:", error);
+                    }
+                }
+
+                // ===== 第三步：构建最终的 itemData =====
+                const itemData: { kind: string, type: string, file: File | null }[] = [];
+
+                if (downloadedGifFile) {
+                    // 成功下载了 GIF 文件，使用下载的 GIF 替换剪贴板中的静态图片
+                    itemData.push({ kind: "file", type: "image/gif", file: downloadedGifFile });
+                } else if (isLikelyGif && originalImageUrl) {
+                    // GIF 下载失败，但我们知道原始文件是 GIF
+                    // 剪贴板中只有静态的 PNG（GIF 的第一帧），无法保留动画
+                    // 提示用户下载失败，使用静态图片作为回退
+                    console.warn("GIF download failed. Using static PNG from clipboard as fallback.");
+                    new Notice(t('main.notice.gifDownloadFailed'));
+                    itemData.push(...clipboardFiles);
+                } else {
+                    itemData.push(...clipboardFiles);
+                }
+
+                // 重新检查是否有支持的文件（下载 GIF 后 itemData 可能变化）
+                const hasFinalSupportedItems = itemData.some(data =>
+                    data.kind === "file" &&
+                    data.file &&
+                    this.supportedImageFormats.isSupported(data.type, data.file.name) &&
+                    !this.folderAndFilenameManagement.matchesPatterns(data.file.name, this.settings.neverProcessFilenames)
+                );
+
+                if (hasFinalSupportedItems) {
                     await this.handlePaste(itemData, editor, cursor);
                 }
             })

@@ -36,7 +36,7 @@ export class LinkFormatSettings {
             },
             // ... more presets can be added here
         ];
-        this.selectedLinkFormatPreset = "Default (Wikilink, Shortest)";
+        this.selectedLinkFormatPreset = "Markdown, Relative";
     }
 
     // Add methods to manage presets (add, delete, update) if needed

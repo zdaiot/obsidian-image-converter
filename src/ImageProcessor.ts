@@ -557,15 +557,11 @@ export class ImageProcessor {
         try {
             // --- Handle GIF format ---
             // GIF 文件包含动画帧，通过 Canvas 处理会丢失动画，因此需要特殊处理
-            // 当输入是 GIF 时，对于 ORIGINAL/NONE 格式直接返回原始数据以保留动画
+            // 无论用户设置了什么输出格式，都应保留原始 GIF 数据以保留动画帧
             const detectedMime = await this.supportedImageFormats.getMimeTypeFromFile(file);
             if (detectedMime === 'image/gif') {
-                if (format === 'NONE' || format === 'ORIGINAL') {
-                    // 保留原始 GIF 数据（包括动画帧）
-                    return file.arrayBuffer();
-                }
-                // 如果用户明确要求转换为其他格式（如 WEBP/PNG/JPEG），
-                // 则继续走下面的转换流程（但动画帧会丢失，这是预期行为）
+                // 始终保留原始 GIF 数据（包括动画帧），不进行任何格式转换
+                return file.arrayBuffer();
             }
 
             // --- Handle NONE format ---

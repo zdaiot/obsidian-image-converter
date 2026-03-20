@@ -126,6 +126,7 @@ export const en: TranslationStrings = {
     'main.notice.failedToProcessImage': 'Failed to process image "{name}": {error}. Check console for details.',
     'main.notice.unexpectedError': 'An unexpected error occurred. Check console for details.',
     'main.notice.failedToInsertImageLink': 'Failed to insert image link. Check console for details.',
+    'main.notice.gifDownloadFailed': 'Failed to download original GIF. Using static image (first frame only) from clipboard as fallback.',
 
     // main.ts - 菜单项
     'main.menu.processImage': 'Process image',

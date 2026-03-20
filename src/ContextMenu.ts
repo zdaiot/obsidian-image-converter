@@ -370,6 +370,13 @@ export class ContextMenu extends Component {
 					// If the delimiter pipe was escaped (\\|), markdownMatch[1] may end with a stray '\\'.
 					return this.unescapePipes(caption.replace(/\\$/, "").trim());
 				}
+
+				// Handle HTML <img> tags
+				const imgTagMatch = firstMatch.fullMatch.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/i);
+				if (imgTagMatch) {
+					const altMatch = firstMatch.fullMatch.match(/alt="([^"]*)"/i);
+					return altMatch ? altMatch[1] : "";
+				}
 			}
 			return "";
 		} catch (error) {
@@ -477,6 +484,17 @@ export class ContextMenu extends Component {
 						height: parts.length > 1 ? parts[1] : "",
 					};
 				}
+
+				// Handle HTML <img> tags
+				const imgTagMatch = firstMatch.fullMatch.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/i);
+				if (imgTagMatch) {
+					const widthMatch = firstMatch.fullMatch.match(/width="(\d+)"/i);
+					const heightMatch = firstMatch.fullMatch.match(/height="(\d+)"/i);
+					return {
+						width: widthMatch ? widthMatch[1] : "",
+						height: heightMatch ? heightMatch[1] : "",
+					};
+				}
 			}
 			return { width: "", height: "" };
 		} catch (error) {
@@ -532,6 +550,35 @@ export class ContextMenu extends Component {
 						return `![[${path}${wikiPipe}${dimensionsPart}]]`;
 					}
 					return `![[${path}]]`;
+				}
+			);
+		}
+
+		// Handle HTML <img> tags
+		const imgTagMatch = line.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/i);
+		if (imgTagMatch) {
+			return line.replace(
+				/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/gi,
+				(fullMatch, src) => {
+					// 构建新的 <img> 标签，保留 src 和 style 中的 zoom
+					const zoomMatch = fullMatch.match(/style="[^"]*zoom:\s*(\d+)%/);
+					const zoomPart = zoomMatch ? `zoom:${zoomMatch[1]}%;` : "";
+
+					let attrs = `src="${src}"`;
+					if (newCaption) {
+						attrs += ` alt="${newCaption}"`;
+					}
+					if (dimensionsPart) {
+						const dimParts = dimensionsPart.split("x");
+						attrs += ` width="${dimParts[0]}"`;
+						if (dimParts.length > 1) {
+							attrs += ` height="${dimParts[1]}"`;
+						}
+					}
+					if (zoomPart) {
+						attrs += ` style="${zoomPart}"`;
+					}
+					return `<img ${attrs} />`;
 				}
 			);
 		}
@@ -1229,6 +1276,12 @@ new Notice(t('contextMenu.notice.failedToOpenInNewWindow'));
 		const markdownMatch = link.match(/!\[.*?\]\(\s*(.*?)\s*\)/);
 		if (markdownMatch) {
 			return markdownMatch[1].trim(); // Trim spaces
+		}
+
+		// Handle HTML <img> tags
+		const imgTagMatch = link.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/i);
+		if (imgTagMatch) {
+			return imgTagMatch[1].trim();
 		}
 
 		return null;

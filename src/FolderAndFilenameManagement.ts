@@ -362,6 +362,11 @@ export class FolderAndFilenameManagement {
             .substring(file.name.lastIndexOf("."))
             .toLowerCase();
 
+        // GIF 文件始终保留原始扩展名（因为 GIF 动画不会被转换）
+        if (originalExtension === '.gif' || file.type === 'image/gif') {
+            return `${filename}${originalExtension}`;
+        }
+
         // First check if conversion should be skipped
         if (selectedConversionPreset && this.shouldSkipConversion(file.name, selectedConversionPreset)) {
             return `${filename}${originalExtension}`;

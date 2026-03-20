@@ -237,9 +237,9 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
         { type: "DEFAULT", name: "Default (Obsidian setting)" },
         { type: "ROOT", name: "Root folder" },
         { type: "CURRENT", name: "Same folder as current note" },
-        // { type: "SUBFOLDER", name: "In subfolder under current note" }, // Example for adding SUBFOLDER later
+        { type: "SUBFOLDER", name: "In subfolder under current note" },
     ],
-    selectedFolderPreset: "Default (Obsidian setting)",
+    selectedFolderPreset: "In subfolder under current note",
     filenamePresets: [
         // { name: "Default (No Change)", customTemplate: "{imagename}", skipRenamePatterns: "", conflictResolution: "increment" }, // This must be disabled!!!
         { name: "Keep original name", customTemplate: "{imagename}", skipRenamePatterns: "", conflictResolution: "increment" },
@@ -267,7 +267,7 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
         folder: false,
         filename: false,
     },
-    subfolderTemplate: "",
+    subfolderTemplate: "{notename}",
     conversionPresets: [
         {
             name: "None",

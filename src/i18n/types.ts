@@ -128,6 +128,7 @@ export interface TranslationStrings {
     'main.notice.failedToProcessImage': string;
     'main.notice.unexpectedError': string;
     'main.notice.failedToInsertImageLink': string;
+    'main.notice.gifDownloadFailed': string;
 
     // main.ts - 菜单项
     'main.menu.processImage': string;

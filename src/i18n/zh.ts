@@ -126,6 +126,7 @@ export const zh: TranslationStrings = {
     'main.notice.failedToProcessImage': '处理图片 "{name}" 失败：{error}。请查看控制台了解详情。',
     'main.notice.unexpectedError': '发生意外错误，请查看控制台了解详情。',
     'main.notice.failedToInsertImageLink': '插入图片链接失败，请查看控制台了解详情。',
+    'main.notice.gifDownloadFailed': 'GIF 原始文件下载失败，已使用剪贴板中的静态图片（仅第一帧）作为回退。',
 
     // main.ts - 菜单项
     'main.menu.processImage': '处理图片',
