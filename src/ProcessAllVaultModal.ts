@@ -7,6 +7,7 @@ import {
 } from "obsidian";
 import ImageConverterPlugin from "./main";
 import { BatchImageProcessor } from "./BatchImageProcessor";
+import { t } from "./i18n";
 
 export class ProcessAllVaultModal extends Modal {
     private enlargeReduceSettings: Setting | null = null;
@@ -70,11 +71,11 @@ export class ProcessAllVaultModal extends Modal {
 
     private createHeader(contentEl: HTMLElement) {
         const headerContainer = contentEl.createDiv({ cls: "modal-header" });
-        headerContainer.createEl("h2", {
-            text: "Convert, compress and resize all images",
+headerContainer.createEl("h2", {
+            text: t('vaultModal.title'),
         });
         headerContainer.createEl("h6", {
-            text: "In the vault",
+            text: t('vaultModal.subtitle'),
             cls: "modal-subtitle",
         });
     }
@@ -83,7 +84,7 @@ export class ProcessAllVaultModal extends Modal {
         contentEl.createEl("p", {
             cls: "modal-warning",
             // eslint-disable-next-line obsidianmd/ui/sentence-case -- Warning icon improves visibility
-            text: "⚠️ This will modify all images in the vault. Please ensure you have backups.",
+text: t('vaultModal.warning'),
         });
     }
 
@@ -231,7 +232,7 @@ export class ProcessAllVaultModal extends Modal {
             cls: "button-container",
         });
         new ButtonComponent(buttonContainer)
-            .setButtonText("Process all images")
+.setButtonText(t('vaultModal.processButton'))
             .setCta()
             .onClick(async () => {
                 this.close();

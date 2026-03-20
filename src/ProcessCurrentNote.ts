@@ -17,6 +17,7 @@ import ImageConverterPlugin from './main';
 
 import { BatchImageProcessor } from './BatchImageProcessor';
 import { CanvasData, CanvasNode } from './canvas-types';
+import { t } from './i18n';
 
 export class ProcessCurrentNote extends Modal {
     private imageCount = 0;
@@ -217,7 +218,7 @@ export class ProcessCurrentNote extends Modal {
                     await this.refreshActiveNote();
                 } else {
                     // eslint-disable-next-line obsidianmd/ui/sentence-case
-                    new Notice('Error: active file must be a markdown or canvas file.');
+new Notice(t('currentNote.notice.errorActiveMustBeMarkdown'));
                 }
             });
     }

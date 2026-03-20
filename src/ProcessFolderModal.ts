@@ -14,6 +14,7 @@ import {
 import ImageConverterPlugin from './main';
 import { BatchImageProcessor } from './BatchImageProcessor';
 import { CanvasData } from './canvas-types';
+import { t } from './i18n';
 
 enum ImageSource {
     DIRECT = "direct",
@@ -141,11 +142,11 @@ export class ProcessFolderModal extends Modal {
         const headerContainer = contentEl.createDiv({ cls: "modal-header" });
 
         // Main title
-        headerContainer.createEl("h2", { text: "Convert, compress and resize" });
+headerContainer.createEl("h2", { text: t('folderModal.title') });
 
         // Subtitle
-        headerContainer.createEl("h6", {
-            text: `all images in: /${folderName}`,
+headerContainer.createEl("h6", {
+            text: t('folderModal.subtitle', { folder: folderName }),
             cls: "modal-subtitle", // Add a class for styling
         });
     }
@@ -155,7 +156,7 @@ export class ProcessFolderModal extends Modal {
         contentEl.createEl("p", {
             cls: "modal-warning",
             // eslint-disable-next-line obsidianmd/ui/sentence-case
-            text: "⚠️ This will modify all images in the selected folder and subfolders (if recursive is enabled). Please ensure you have backups.",
+text: t('folderModal.warning'),
         });
     }
 
@@ -191,21 +192,21 @@ export class ProcessFolderModal extends Modal {
         // Set initial description
         updateDescription(this.selectedImageSource);
         // Image Counts
-        countsDisplay.createEl("span", { text: "Total images found: " });
+countsDisplay.createEl("span", { text: t('folderModal.totalImages') });
         this.imageCountDisplay = countsDisplay.createEl("span", {
             text: this.imageCount.toString(),
         });
 
         countsDisplay.createEl("br");
 
-        countsDisplay.createEl("span", { text: "To be skipped: " });
+countsDisplay.createEl("span", { text: t('folderModal.toBeSkipped') });
         this.skippedCountDisplay = countsDisplay.createEl("span", {
             text: this.skippedCount.toString(),
         });
 
         countsDisplay.createEl("br");
 
-        countsDisplay.createEl("span", { text: "To be processed: " });
+countsDisplay.createEl("span", { text: t('folderModal.toBeProcessed') });
         this.processedCountDisplay = countsDisplay.createEl("span", {
             text: this.processedCount.toString(),
         });
@@ -215,7 +216,7 @@ export class ProcessFolderModal extends Modal {
 
     // --- Image Source Settings with Radio Buttons ---
     private createImageSourceSettings(contentEl: HTMLElement) {
-        contentEl.createEl("h4", { text: "Image source" }); // Heading for Image Source
+contentEl.createEl("h4", { text: t('folderModal.imageSource') }); // Heading for Image Source
 
         // --- Recursive Setting ---
         new Setting(contentEl)
@@ -319,7 +320,7 @@ export class ProcessFolderModal extends Modal {
 
     // --- General Settings ---
     private async createGeneralSettings(contentEl: HTMLElement) {
-        contentEl.createEl("h4", { text: "General" }); // Heading for General Settings
+contentEl.createEl("h4", { text: t('folderModal.general') }); // Heading for General Settings
 
         // --- Convert To Setting ---
         this.convertToSetting = new Setting(contentEl)
@@ -383,7 +384,7 @@ export class ProcessFolderModal extends Modal {
     }
 
     private createSkipSettings(contentEl: HTMLElement): void {
-        contentEl.createEl("h4", { text: "Skip" }); // Heading for Resize Settings
+contentEl.createEl("h4", { text: t('folderModal.skip') }); // Heading for Resize Settings
 
         // --- Skip Formats Setting ---
         this.skipFormatsSetting = new Setting(contentEl)
@@ -435,7 +436,7 @@ export class ProcessFolderModal extends Modal {
 
     // --- Resize Settings ---
     private async createResizeSettings(contentEl: HTMLElement) {
-        contentEl.createEl("h4", { text: "Resize" }); // Heading for Resize Settings
+contentEl.createEl("h4", { text: t('folderModal.resize') }); // Heading for Resize Settings
 
         // --- Resize Mode Setting ---
         this.resizeModeSetting = new Setting(contentEl)
@@ -492,7 +493,7 @@ export class ProcessFolderModal extends Modal {
     private createProcessButton(contentEl: HTMLElement) {
         const buttonContainer = contentEl.createDiv({ cls: "button-container" });
         new ButtonComponent(buttonContainer)
-            .setButtonText("Process")
+.setButtonText(t('folderModal.processButton'))
             .setCta()
             .onClick(async () => { // Use async here
                 this.close();
@@ -714,7 +715,7 @@ export class ProcessFolderModal extends Modal {
         const folder = this.app.vault.getAbstractFileByPath(this.folderPath);
         if (!(folder instanceof TFolder)) {
             // eslint-disable-next-line obsidianmd/ui/sentence-case
-            new Notice("Error: Invalid folder path.");
+new Notice(t('folderModal.errorInvalidFolder'));
             return { total: 0, processed: 0, skipped: 0 };
         }
 

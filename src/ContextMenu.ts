@@ -11,6 +11,8 @@ import {
 	MenuItem,
 	MarkdownView,
 	Editor,
+	Setting,
+	Modal,
 } from "obsidian";
 // eslint-disable-next-line import/no-nodejs-modules -- Required for path manipulation; Obsidian runs on Electron with Node.js support
 import * as path from "path";
@@ -22,6 +24,7 @@ import { ImageAnnotationModal } from "./ImageAnnotation";
 import { Crop } from "./Crop";
 import { ProcessSingleImageModal } from "./ProcessSingleImageModal";
 import { getVaultConfigBoolean } from "./utils/vaultConfig";
+import { t } from "./i18n";
 
 interface ImageMatch {
 	lineNumber: number;
@@ -249,6 +252,12 @@ export class ContextMenu extends Component {
 		this.addCropRotateFlipMenuItem(menu, img);
 
 		this.addAnnotateImageMenuItem(menu, img);
+
+		menu.addSeparator();
+
+		// 缩放图片（zoom 百分比）和 figure 标题
+		this.addZoomImageMenuItem(menu, img, activeFile);
+		this.addFigureCaptionMenuItem(menu, img, activeFile);
 
 		menu.addSeparator();
 
@@ -567,7 +576,7 @@ export class ContextMenu extends Component {
 			(width && !/^\d+$/.test(width)) ||
 			(height && !/^\d+$/.test(height))
 		) {
-			new Notice("Dimensions must be positive numbers");
+new Notice(t('contextMenu.notice.dimensionsMustBePositive'));
 			return;
 		}
 
@@ -584,7 +593,7 @@ export class ContextMenu extends Component {
 		);
 
 		if (matches.length === 0) {
-			new Notice("Failed to find image link in the current note.");
+new Notice(t('contextMenu.notice.failedToFindImageLink'));
 			return;
 		}
 
@@ -599,20 +608,20 @@ export class ContextMenu extends Component {
 				);
 				editor.setLine(match.lineNumber, updatedLine);
 			}
-			new Notice("Image caption and dimensions updated successfully.");
+new Notice(t('contextMenu.notice.captionAndDimensionsUpdated'));
 			this.plugin.captionManager?.refresh();
 		};
 
 		if (matches.length > 1) {
-			new ConfirmDialog(
+new ConfirmDialog(
 				this.app,
-				"Confirm Updates",
-				`Found ${matches.length} matching image links. Update all?`,
-				"Update",
+				t('contextMenu.confirm.confirmUpdates'),
+				t('contextMenu.confirm.foundMatchingLinks', { count: String(matches.length) }),
+				t('contextMenu.confirm.update'),
 				() => {
 					handleConfirmation().catch((error: unknown) => {
 						console.error("Failed to update image caption and dimensions:", error);
-						new Notice("Failed to update. See console for details.");
+new Notice(t('contextMenu.notice.failedToUpdate'));
 					});
 				}
 			).open();
@@ -694,14 +703,14 @@ export class ContextMenu extends Component {
 				nameGroup.appendChild(nameIcon);
 
 				const nameLabel = document.createElement("label");
-				nameLabel.textContent = "Name:";
+nameLabel.textContent = t('contextMenu.nameLabel');
 				nameLabel.setAttribute("for", "image-converter-name-input");
 				nameGroup.appendChild(nameLabel);
 
 				const nameInput = document.createElement("input");
 				nameInput.type = "text";
 				nameInput.value = fileNameWithoutExt;
-				nameInput.placeholder = "Enter a new image name";
+nameInput.placeholder = t('contextMenu.namePlaceholder');
 				nameInput.className = "image-converter-contextmenu-name-input";
 				nameInput.id = "image-converter-name-input";
 				if (!isImageResolvable) {
@@ -722,14 +731,14 @@ export class ContextMenu extends Component {
 				pathGroup.appendChild(pathIcon);
 
 				const pathLabel = document.createElement("label");
-				pathLabel.textContent = "Folder:";
+pathLabel.textContent = t('contextMenu.folderLabel');
 				pathLabel.setAttribute("for", "image-converter-path-input");
 				pathGroup.appendChild(pathLabel);
 
 				const pathInput = document.createElement("input");
 				pathInput.type = "text";
 				pathInput.value = directoryPath;
-				pathInput.placeholder = "Enter a new path for the image";
+pathInput.placeholder = t('contextMenu.folderPlaceholder');
 				pathInput.className = "image-converter-contextmenu-path-input";
 				pathInput.id = "image-converter-path-input";
 				if (!isImageResolvable) {
@@ -751,7 +760,7 @@ export class ContextMenu extends Component {
 				captionGroup.appendChild(captionIcon);
 
 				const captionLabel = document.createElement("label");
-				captionLabel.textContent = "Caption:";
+captionLabel.textContent = t('contextMenu.captionLabel');
 				captionLabel.setAttribute(
 					"for",
 					"image-converter-caption-input"
@@ -760,7 +769,7 @@ export class ContextMenu extends Component {
 
 				const captionInput = document.createElement("input");
 				captionInput.type = "text";
-				captionInput.placeholder = "Loading caption...";
+captionInput.placeholder = t('contextMenu.captionLoading');
 				captionInput.className =
 					"image-converter-contextmenu-caption-input";
 				captionInput.id = "image-converter-caption-input";
@@ -778,7 +787,7 @@ export class ContextMenu extends Component {
 				dimensionsGroup.appendChild(dimensionsIcon);
 
 				const dimensionsLabel = document.createElement("label");
-				dimensionsLabel.textContent = "Size:";
+dimensionsLabel.textContent = t('contextMenu.sizeLabel');
 				dimensionsLabel.setAttribute(
 					"for",
 					"image-converter-width-input"
@@ -873,11 +882,11 @@ export class ContextMenu extends Component {
 				this.loadCurrentCaption(img, activeFile)
 					.then((currentCaption) => {
 						captionInput.value = currentCaption;
-						captionInput.placeholder = "Enter a custom caption";
+captionInput.placeholder = t('contextMenu.captionPlaceholder');
 					})
 					.catch((error: unknown) => {
 						console.error("Failed to load caption:", error);
-						captionInput.placeholder = "Enter a custom caption";
+captionInput.placeholder = t('contextMenu.captionPlaceholder');
 					});
 
 				// Single confirm button handler
@@ -974,18 +983,18 @@ export class ContextMenu extends Component {
 		);
 
 		if (!newName.trim()) {
-			new Notice("Please enter a new file name.");
+new Notice(t('contextMenu.notice.pleaseEnterNewName'));
 			return;
 		}
 
 		newName = this.folderAndFilenameManagement.sanitizeFilename(newName);
 
 		if (/^[.]+$/.test(newName.trim())) {
-			new Notice("Please enter a valid file name");
+new Notice(t('contextMenu.notice.pleaseEnterValidName'));
 			return;
 		}
 		if (!newDirectoryPath.trim()) {
-			new Notice("Please enter a new path.");
+new Notice(t('contextMenu.notice.pleaseEnterNewPath'));
 			return;
 		}
 
@@ -1011,7 +1020,7 @@ export class ContextMenu extends Component {
 							newPath
 						);
 						img.src = this.app.vault.getResourcePath(abstractFile);
-						new Notice("Image name updated successfully");
+new Notice(t('contextMenu.notice.imageNameUpdated'));
 					}
 				}
 				// Handle Movea
@@ -1036,12 +1045,12 @@ export class ContextMenu extends Component {
 									newPath
 								);
 							if (safeRenameSuccessful) {
-								new Notice(
-									"Image path updated (case-sensitive change)."
+new Notice(
+									t('contextMenu.notice.imagePathUpdatedCaseSensitive')
 								);
 							} else {
-								new Notice(
-									"Image path update failed (case-sensitive change)."
+new Notice(
+									t('contextMenu.notice.imagePathUpdateFailedCaseSensitive')
 								);
 							}
 						} else {
@@ -1049,7 +1058,7 @@ export class ContextMenu extends Component {
 								abstractFile,
 								newPath
 							);
-							new Notice("Image path updated successfully");
+new Notice(t('contextMenu.notice.imagePathUpdated'));
 						}
 						img.src = this.app.vault.getResourcePath(abstractFile);
 						const leaf = this.app.workspace.getMostRecentLeaf();
@@ -1065,7 +1074,7 @@ export class ContextMenu extends Component {
 				}
 			} catch (error) {
 				console.error("Failed to update image path:", error);
-				new Notice("Failed to update image path");
+new Notice(t('contextMenu.notice.failedToUpdateImagePath'));
 			}
 		}
 		this.hideMenu(menu);
@@ -1082,7 +1091,7 @@ export class ContextMenu extends Component {
 	 */
 	addOpenInNewWindowMenuItem(menu: Menu, img: HTMLImageElement) {
 		menu.addItem((item) => {
-			item.setTitle("Open in new window")
+item.setTitle(t('contextMenu.openInNewWindow'))
 				.setIcon("square-arrow-out-up-right")
 				.onClick(async () => {
 					try {
@@ -1100,7 +1109,7 @@ export class ContextMenu extends Component {
 							}
 						}
 					} catch (error) {
-						new Notice("Failed to open in new window");
+new Notice(t('contextMenu.notice.failedToOpenInNewWindow'));
 						console.error(error);
 					}
 				});
@@ -1323,11 +1332,13 @@ export class ContextMenu extends Component {
 							this.normalizeImagePath(resolvedPath);
 
 						// Check for exact match or if the normalized image path ends with the resolved path
+						let alreadyMatched = false;
 						if (
 							normalizedImagePath === normalizedResolvedPath ||
 							normalizedImagePath.endsWith(normalizedResolvedPath)
 						) {
 							matches.push({ lineNumber: i, line, fullMatch });
+							alreadyMatched = true;
 							// console.log('Markdown match found:', {
 							// 	normalizedImagePath,
 							// 	normalizedResolvedPath,
@@ -1335,8 +1346,8 @@ export class ContextMenu extends Component {
 							// });
 						}
 
-						// Additional check for paths starting with ./
-						if (linkPath.startsWith("./")) {
+						// Additional check for paths starting with ./ (仅在上面没有匹配时才检查，避免重复)
+						if (!alreadyMatched && linkPath.startsWith("./")) {
 							const linkPathWithoutDotSlash =
 								linkPath.substring(2);
 							const normalizedLinkPathWithoutDotSlash =
@@ -1367,11 +1378,51 @@ export class ContextMenu extends Component {
 					(linkPath.startsWith("http://") ||
 						linkPath.startsWith("https://"))
 				) {
-					matches.push({ lineNumber: i, line, fullMatch });
+				matches.push({ lineNumber: i, line, fullMatch });
 					// console.log('External link match found:', {
 					// 	linkPath,
 					// 	fullMatch
 					// });
+				}
+			}
+
+			// 检查 HTML <img> 标签（支持已缩放的 img 标签被再次匹配）
+			const imgTagMatches = [
+				...line.matchAll(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/g),
+			];
+			for (const match of imgTagMatches) {
+				const fullMatch = match[0];
+				const tagSrc = match[1];
+
+				if (!tagSrc) continue;
+
+				if (!isExternal && imagePath) {
+					const resolvedPath = resolveRelativePath(
+						tagSrc,
+						activeFile.path
+					);
+
+					const normalizedImagePath =
+						this.normalizeImagePath(imagePath);
+					const normalizedResolvedPath =
+						this.normalizeImagePath(resolvedPath);
+					const normalizedTagSrc =
+						this.normalizeImagePath(tagSrc);
+
+					if (
+						normalizedImagePath === normalizedResolvedPath ||
+						normalizedImagePath.endsWith(normalizedResolvedPath) ||
+						normalizedImagePath === normalizedTagSrc ||
+						normalizedImagePath.endsWith(normalizedTagSrc)
+					) {
+						matches.push({ lineNumber: i, line, fullMatch });
+					}
+				} else if (
+					isExternal &&
+					(tagSrc.startsWith("http://") ||
+						tagSrc.startsWith("https://"))
+				) {
+					matches.push({ lineNumber: i, line, fullMatch });
 				}
 			}
 		}
@@ -1489,7 +1540,7 @@ export class ContextMenu extends Component {
 	 */
 	addCutImageMenuItem(menu: Menu, event: MouseEvent) {
 		menu.addItem((item) => {
-			item.setTitle("Cut")
+item.setTitle(t('contextMenu.cut'))
 				.setIcon("scissors")
 				.onClick(async () => {
 					await this.cutImageAndLinkFromNote(event);
@@ -1508,7 +1559,7 @@ export class ContextMenu extends Component {
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!activeView) {
-			new Notice("No active Markdown view found");
+new Notice(t('contextMenu.notice.noActiveMarkdownViewFound'));
 			return;
 		}
 
@@ -1531,7 +1582,7 @@ export class ContextMenu extends Component {
 				);
 				if (!found) {
 					// eslint-disable-next-line obsidianmd/ui/sentence-case -- Base64 is a proper technical term
-					new Notice("Failed to find Base64 image link");
+new Notice(t('contextMenu.notice.failedToFindBase64ImageLink'));
 				}
 				return;
 			}
@@ -1551,7 +1602,7 @@ export class ContextMenu extends Component {
 			);
 
 			if (matches.length === 0) {
-				new Notice("Failed to find image link in the current note.");
+new Notice(t('contextMenu.notice.failedToFindImageLink'));
 				return;
 			}
 
@@ -1565,22 +1616,20 @@ export class ContextMenu extends Component {
 						true
 					);
 				}
-				new Notice(
-					"Image link(s) cut from note and copied to clipboard"
-				);
+new Notice(t('contextMenu.notice.imageLinksCutFromNote'));
 			};
 
 		if (matches.length > 1) {
 				// Show confirmation modal
-				new ConfirmDialog(
+new ConfirmDialog(
 					this.app,
-					"Confirm Cut",
-					`Found ${matches.length} matching image links inside current note. Do you want to cut all of them?`,
-					"Cut",
+					t('contextMenu.confirm.confirmCut'),
+					t('contextMenu.confirm.confirmCutMessage', { count: String(matches.length) }),
+					t('common.cut'),
 					() => {
 						handleConfirmation().catch((error: unknown) => {
 							console.error("Failed to cut image links:", error);
-							new Notice("Failed to cut. See console for details.");
+new Notice(t('contextMenu.notice.failedToCut'));
 						});
 					}
 				).open();
@@ -1590,7 +1639,7 @@ export class ContextMenu extends Component {
 			}
 		} catch (error) {
 			console.error("Error cutting image:", error);
-			new Notice("Failed to cut image. Check console for details.");
+new Notice(t('contextMenu.notice.failedToCutImage'));
 		}
 	}
 
@@ -1606,7 +1655,7 @@ export class ContextMenu extends Component {
 	addCopyImageMenuItem(menu: Menu, event: MouseEvent) {
 		menu.addItem((item: MenuItem) =>
 			item
-				.setTitle("Copy image")
+.setTitle(t('contextMenu.copyImage'))
 				.setIcon("copy")
 				.onClick(async () => {
 					await this.copyImageToClipboard(event);
@@ -1631,17 +1680,17 @@ export class ContextMenu extends Component {
 				canvas.height = img.naturalHeight;
 				const ctx = canvas.getContext("2d");
 				if (!ctx) {
-					new Notice("Failed to get canvas context");
+new Notice(t('contextMenu.notice.failedToGetCanvasContext'));
 					return;
 				}
 				ctx.drawImage(img, 0, 0);
 				const blob = await this.canvasToBlob(canvas);
 				const item = new ClipboardItem({ [blob.type]: blob });
 				await navigator.clipboard.write([item]);
-				new Notice("Image copied to clipboard");
+new Notice(t('contextMenu.notice.imageCopiedToClipboard'));
 			} catch (error) {
 				console.error("Failed to copy image:", error);
-				new Notice("Failed to copy image to clipboard");
+new Notice(t('contextMenu.notice.failedToCopyImage'));
 			}
 		});
 
@@ -1661,7 +1710,7 @@ export class ContextMenu extends Component {
 		menu.addItem((item: MenuItem) =>
 			item
 				// eslint-disable-next-line obsidianmd/ui/sentence-case -- Base64 is a proper technical term
-				.setTitle("Copy as Base64 encoded image")
+.setTitle(t('contextMenu.copyAsBase64'))
 				.setIcon("copy")
 				.onClick(() => {
 					void this.copyImageAsBase64(event);
@@ -1685,18 +1734,18 @@ export class ContextMenu extends Component {
 				canvas.height = img.naturalHeight;
 				const ctx = canvas.getContext("2d");
 				if (!ctx) {
-					new Notice("Failed to get canvas context");
+new Notice(t('contextMenu.notice.failedToGetCanvasContext'));
 					return;
 				}
 				ctx.drawImage(img, 0, 0);
 				const dataURL = canvas.toDataURL();
 				await navigator.clipboard.writeText(`<img src="${dataURL}"/>`);
 				// eslint-disable-next-line obsidianmd/ui/sentence-case -- Base64 is a proper technical term
-				new Notice("Image copied to clipboard as Base64");
+new Notice(t('contextMenu.notice.imageCopiedAsBase64'));
 			} catch (error) {
 				console.error("Failed to copy image as Base64:", error);
 				// eslint-disable-next-line obsidianmd/ui/sentence-case -- Base64 is a proper technical term
-				new Notice("Failed to copy image as Base64");
+new Notice(t('contextMenu.notice.failedToCopyAsBase64'));
 			}
 		});
 
@@ -1720,7 +1769,7 @@ export class ContextMenu extends Component {
 		event: MouseEvent
 	) {
 		menu.addItem((item) => {
-			item.setTitle("Convert/compress...")
+item.setTitle(t('contextMenu.convertCompress'))
 				.setIcon("cog")
 				.onClick(async () => {
 					try {
@@ -1730,22 +1779,22 @@ export class ContextMenu extends Component {
 								MarkdownView
 							);
 					if (!activeView) {
-						new Notice("No active Markdown view");
+new Notice(t('contextMenu.notice.noActiveMarkdownView'));
 						return;
 					}
 
 					// Get the current note being viewed
 					const currentFile = activeView.file;
 					if (!currentFile) {
-						new Notice("No current file found");
+new Notice(t('contextMenu.notice.noCurrentFileFound'));
 							return;
 						}
 
 						// Extract the filename from the img's src attribute
 						const srcAttribute = img.getAttribute("src");
 						if (!srcAttribute) {
-							new Notice(
-								"No source attribute found on the image"
+new Notice(
+								t('contextMenu.notice.noSourceAttribute')
 							);
 							return;
 						}
@@ -1755,8 +1804,8 @@ export class ContextMenu extends Component {
 							srcAttribute.split("?")[0].split("/").pop() || ""
 						);
 						if (!filename) {
-							new Notice(
-								"Unable to extract filename from the image source"
+new Notice(
+								t('contextMenu.notice.unableToExtractFilename')
 							);
 							return;
 						}
@@ -1770,7 +1819,7 @@ export class ContextMenu extends Component {
 								"No matching files found for:",
 								filename
 							);
-							new Notice(`Unable to find image: ${filename}`);
+new Notice(t('contextMenu.notice.unableToFindImage', { filename }));
 							return;
 						}
 
@@ -1796,11 +1845,11 @@ export class ContextMenu extends Component {
 								file
 							).open();
 					} else {
-						new Notice("Not a valid image file");
+new Notice(t('contextMenu.notice.notValidImageFile'));
 					}
 					} catch (error) {
 						console.error("Error processing image:", error);
-						new Notice("Error processing image");
+new Notice(t('contextMenu.notice.errorProcessingImage'));
 					}
 				});
 		});
@@ -1817,28 +1866,28 @@ export class ContextMenu extends Component {
 	 */
 	addCropRotateFlipMenuItem(menu: Menu, img: HTMLImageElement) {
 		menu.addItem((item) => {
-			item.setTitle("Crop/rotate/flip")
+item.setTitle(t('contextMenu.cropRotateFlip'))
 				.setIcon("scissors")
 				.onClick(async () => {
 					// Get the active markdown view
 					const activeView =
 						this.app.workspace.getActiveViewOfType(MarkdownView);
 					if (!activeView) {
-						new Notice("No active Markdown view");
+new Notice(t('contextMenu.notice.noActiveMarkdownView'));
 						return;
 					}
 
 					// Get the current file (note) being viewed
 					const currentFile = activeView.file;
 					if (!currentFile) {
-						new Notice("No current file found");
+new Notice(t('contextMenu.notice.noCurrentFileFound'));
 						return;
 					}
 
 					// Get the filename from the src attribute
 					const srcAttribute = img.getAttribute("src");
 					if (!srcAttribute) {
-						new Notice("No source attribute found");
+new Notice(t('contextMenu.notice.noSourceAttribute'));
 						return;
 					}
 
@@ -1854,7 +1903,7 @@ export class ContextMenu extends Component {
 
 					if (matchingFiles.length === 0) {
 						console.error("No matching files found for:", filename);
-						new Notice(`Unable to find image: ${filename}`);
+new Notice(t('contextMenu.notice.unableToFindImage', { filename }));
 						return;
 					}
 
@@ -1873,7 +1922,7 @@ export class ContextMenu extends Component {
 					if (file instanceof TFile) {
 						new Crop(this.app, file).open();
 					} else {
-						new Notice("Unable to locate image file");
+new Notice(t('contextMenu.notice.unableToLocateImageFile'));
 					}
 				});
 		});
@@ -1885,7 +1934,7 @@ export class ContextMenu extends Component {
 
 	addAnnotateImageMenuItem(menu: Menu, img: HTMLImageElement) {
 		menu.addItem((item) => {
-			item.setTitle("Annotate image")
+item.setTitle(t('contextMenu.annotateImage'))
 				.setIcon("pencil")
 				.onClick(async () => {
 					try {
@@ -1895,21 +1944,21 @@ export class ContextMenu extends Component {
 							MarkdownView
 						);
 					if (!activeView) {
-						new Notice("No active Markdown view");
+new Notice(t('contextMenu.notice.noActiveMarkdownView'));
 						return;
 					}
 
 					// Get the current file (note) being viewed
 					const currentFile = activeView.file;
 					if (!currentFile) {
-						new Notice("No current file found");
+new Notice(t('contextMenu.notice.noCurrentFileFound'));
 						return;
 					}
 
 					// Get the filename from the src attribute
 					const srcAttribute = img.getAttribute("src");
 					if (!srcAttribute) {
-						new Notice("No source attribute found");
+new Notice(t('contextMenu.notice.noSourceAttribute'));
 							return;
 						}
 
@@ -1929,7 +1978,7 @@ export class ContextMenu extends Component {
 								"No matching files found for:",
 								filename
 							);
-							new Notice(`Unable to find image: ${filename}`);
+new Notice(t('contextMenu.notice.unableToFindImage', { filename }));
 							return;
 						}
 
@@ -1956,11 +2005,11 @@ export class ContextMenu extends Component {
 								file
 							).open();
 						} else {
-							new Notice("Unable to locate image file");
+new Notice(t('contextMenu.notice.unableToLocateImageFile'));
 						}
 					} catch (error) {
 						console.error("Image location error:", error);
-						new Notice("Error processing image path");
+new Notice(t('contextMenu.notice.errorProcessingImagePath'));
 					}
 				});
 		});
@@ -1977,7 +2026,7 @@ export class ContextMenu extends Component {
 	 */
 	addShowInNavigationMenuItem(menu: Menu, img: HTMLImageElement) {
 		menu.addItem((item) => {
-			item.setTitle("Show in navigation")
+item.setTitle(t('contextMenu.showInNavigation'))
 				.setIcon("folder-open")
 				.onClick(async () => {
 					await this.showImageInNavigation(img);
@@ -2025,7 +2074,7 @@ export class ContextMenu extends Component {
 				}
 			}
 		} catch (error) {
-			new Notice("Failed to show in navigation");
+new Notice(t('contextMenu.notice.failedToShowInNavigation'));
 			console.error(error);
 		}
 	}
@@ -2040,7 +2089,7 @@ export class ContextMenu extends Component {
 	 */
 	addShowInSystemExplorerMenuItem(menu: Menu, img: HTMLImageElement) {
 		menu.addItem((item) => {
-			item.setTitle("Show in system explorer")
+item.setTitle(t('contextMenu.showInSystemExplorer'))
 				.setIcon("arrow-up-right")
 				.onClick(async () => {
 					await this.showImageInSystemExplorer(img);
@@ -2061,7 +2110,7 @@ export class ContextMenu extends Component {
 				await this.app.showInFolder(imagePath);
 			}
 		} catch (error) {
-			new Notice("Failed to show in system explorer");
+new Notice(t('contextMenu.notice.failedToShowInExplorer'));
 			console.error(error);
 		}
 	}
@@ -2077,7 +2126,7 @@ export class ContextMenu extends Component {
 	 */
 	addDeleteImageAndLinkMenuItem(menu: Menu, event: MouseEvent) {
 		menu.addItem((item) => {
-			item.setTitle("Delete image and link")
+item.setTitle(t('contextMenu.deleteImageAndLink'))
 				.setIcon("trash")
 				.onClick(async () => {
 					await this.deleteImageAndLinkFromNote(event);
@@ -2096,7 +2145,7 @@ export class ContextMenu extends Component {
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!activeView) {
-			new Notice("No active Markdown view found");
+new Notice(t('contextMenu.notice.noActiveMarkdownViewFound'));
 			return;
 		}
 
@@ -2119,7 +2168,7 @@ export class ContextMenu extends Component {
 				);
 			if (!found) {
 				// eslint-disable-next-line obsidianmd/ui/sentence-case -- Base64 is a proper technical term
-				new Notice("Failed to find Base64 image link");
+new Notice(t('contextMenu.notice.failedToFindBase64ImageLink'));
 			}
 				return;
 			}
@@ -2137,7 +2186,7 @@ export class ContextMenu extends Component {
 			);
 
 			if (matches.length === 0) {
-				new Notice("Failed to find image link in the current note.");
+new Notice(t('contextMenu.notice.failedToFindImageLink'));
 				return;
 			}
 
@@ -2177,7 +2226,7 @@ export class ContextMenu extends Component {
 					);
 				}
 
-				new Notice("Image link(s) removed from note");
+new Notice(t('contextMenu.notice.imageLinksRemovedFromNote'));
 
 				// Delete the actual image file if it exists in the vault
 				if (imagePath) {
@@ -2188,7 +2237,7 @@ export class ContextMenu extends Component {
 						// file deletion settings are honored (e.g., "Move to system trash" vs
 						// "Permanently delete").
 						await this.app.fileManager.trashFile(imageFile);
-						new Notice("Image file moved to trash");
+new Notice(t('contextMenu.notice.imageFileMovedToTrash'));
 					}
 				}
 			};
@@ -2204,7 +2253,7 @@ export class ContextMenu extends Component {
 
 				// Add introductory text
 				const introText = document.createElement("p");
-				introText.textContent = `Found ${uniqueMatches.length} unique matching image links inside current note. Do you want to delete all of them?`; // Updated message
+introText.textContent = t('contextMenu.confirm.confirmDeleteMessage', { count: String(uniqueMatches.length) });
 				messageContainer.appendChild(introText);
 
 				// Add details to the message container
@@ -2218,15 +2267,15 @@ export class ContextMenu extends Component {
 					messageContainer.appendChild(detailDiv); // Append to messageContainer
 				});
 
-				new ConfirmDialog(
+new ConfirmDialog(
 					this.app,
-					"Confirm Delete",
+					t('contextMenu.confirm.confirmDelete'),
 					detailsFragment,
-					"Delete",
+					t('common.delete'),
 					() => {
 						handleConfirmation().catch((error: unknown) => {
 							console.error("Failed to delete image:", error);
-							new Notice("Failed to delete. See console for details.");
+new Notice(t('contextMenu.notice.failedToDelete'));
 						});
 					}
 				).open();
@@ -2235,12 +2284,332 @@ export class ContextMenu extends Component {
 				await handleConfirmation();
 			} else {
 				// This case should not happen because of the initial check `if (uniqueMatches.length === 0)` but for completeness.
-				new Notice("No unique image links found to delete.");
+new Notice(t('contextMenu.notice.noUniqueImageLinksFound'));
 			}
 		} catch (error) {
 			console.error("Error deleting image:", error);
-			new Notice("Failed to delete image. Check console for details.");
+new Notice(t('contextMenu.notice.failedToDelete'));
 		}
+	}
+
+	/*-----------------------------------------------------------------*/
+	/*                         ZOOM IMAGE                              */
+	/*-----------------------------------------------------------------*/
+
+	/**
+	 * 添加"缩放图片"子菜单项，提供多个缩放百分比选项。
+	 * 点击后将 markdown 图片链接替换为 <img style="zoom:XX%;" /> 格式的 HTML 标签。
+	 */
+	addZoomImageMenuItem(menu: Menu, img: HTMLImageElement, activeFile: TFile) {
+		const zoomPercentages = [25, 33, 50, 67, 75, 100];
+
+		menu.addItem((item) => {
+			const submenu = item
+				.setTitle(t('contextMenu.zoom.title'))
+				.setIcon("maximize")
+				.setSubmenu();
+
+			for (const pct of zoomPercentages) {
+				submenu.addItem((subItem) => {
+					subItem
+						.setTitle(`${pct}%`)
+						.onClick(async () => {
+							await this.applyZoomToImage(img, activeFile, pct);
+						});
+				});
+			}
+
+			submenu.addSeparator();
+
+			// 重置为标准 Markdown 格式
+			submenu.addItem((subItem) => {
+				subItem
+					.setTitle(t('contextMenu.zoom.resetToMarkdown'))
+					.setIcon("rotate-ccw")
+					.onClick(async () => {
+						await this.resetZoomToMarkdown(img, activeFile);
+					});
+			});
+		});
+	}
+
+	/**
+	 * 将图片链接替换为 <img src="..." alt="..." style="zoom:XX%;" /> 格式
+	 */
+	private async applyZoomToImage(img: HTMLImageElement, activeFile: TFile, zoomPercent: number) {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			new Notice(t('contextMenu.notice.noActiveMarkdownView'));
+			return;
+		}
+
+		const { editor } = activeView;
+		const imagePath = this.getImagePathSafe(img);
+		const isExternal = !imagePath;
+		const matches = await this.findImageMatches(editor, imagePath, isExternal);
+
+		if (matches.length === 0) {
+			new Notice(t('contextMenu.notice.failedToFindImageLink'));
+			return;
+		}
+
+		// 去重：同一行同一 fullMatch 只保留一次
+		const seen = new Set<string>();
+		const uniqueMatches = matches.filter(m => {
+			const key = `${m.lineNumber}:${m.fullMatch}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+
+		// 从后向前替换，避免前面的替换导致后续行偏移
+		for (let idx = uniqueMatches.length - 1; idx >= 0; idx--) {
+			const { lineNumber, fullMatch } = uniqueMatches[idx];
+			// 每次替换前重新读取当前行内容，确保位置准确
+			const currentLine = editor.getLine(lineNumber);
+
+			// 从链接中提取路径和 alt 文本
+			let src = "";
+			let alt = "";
+
+			// 尝试匹配已有的 <img> 标签（不强制要求 alt 属性存在）
+			const imgTagMatch = fullMatch.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/);
+			if (imgTagMatch) {
+				src = imgTagMatch[1];
+				// 单独提取 alt 属性（可能不存在）
+				const altMatch = fullMatch.match(/alt="([^"]*)"/);
+				alt = altMatch ? altMatch[1] : path.parse(src).name;
+			} else {
+				// Wiki-style: ![[path|caption|dimensions]]
+				const wikiMatch = fullMatch.match(/!\[\[\s*([^|\]]+?)(?:\|([^|\]]+?))?(?:\|[^|\]]+?)?\s*\]\]/);
+				if (wikiMatch) {
+					src = wikiMatch[1].trim();
+					alt = wikiMatch[2]?.trim() || path.parse(src).name;
+				} else {
+					// Markdown-style: ![alt|dimensions](path)
+					const mdMatch = fullMatch.match(/!\[([^|\]]*?)(?:\|[^\]]+?)?\]\(([^)]+)\)/);
+					if (mdMatch) {
+						alt = mdMatch[1].trim() || path.parse(mdMatch[2]).name;
+						src = mdMatch[2].trim();
+					}
+				}
+			}
+
+			if (!src) continue;
+
+			// 构建新的 <img> 标签
+			const newTag = `<img src="${src}" alt="${alt}" style="zoom:${zoomPercent}%;" />`;
+
+			// 替换原文本（使用当前行内容查找位置）
+			const startCh = currentLine.indexOf(fullMatch);
+			if (startCh === -1) continue;
+
+			const startPos = { line: lineNumber, ch: startCh };
+			const endPos = { line: lineNumber, ch: startCh + fullMatch.length };
+			editor.replaceRange(newTag, startPos, endPos);
+		}
+	}
+
+	/**
+	 * 将 <img> 标签重置为标准 Markdown 格式 ![alt](src)
+	 */
+	private async resetZoomToMarkdown(img: HTMLImageElement, activeFile: TFile) {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			new Notice(t('contextMenu.notice.noActiveMarkdownView'));
+			return;
+		}
+
+		const { editor } = activeView;
+		const src = img.getAttribute("src");
+		if (!src) return;
+
+		const lineCount = editor.getDoc().lineCount();
+
+		for (let i = 0; i < lineCount; i++) {
+			const line = editor.getLine(i);
+
+			// 匹配 <img> 标签（不强制要求 alt 属性存在）
+			const imgTagRegex = /<img\s+[^>]*src="([^"]*)"[^>]*\/?>/g;
+			let tagMatch;
+
+			while ((tagMatch = imgTagRegex.exec(line)) !== null) {
+				const tagSrc = tagMatch[1];
+				// 单独提取 alt 属性（可能不存在）
+				const altMatch = tagMatch[0].match(/alt="([^"]*)"/);
+				const tagAlt = altMatch ? altMatch[1] : path.parse(tagSrc).name;
+
+				// 比较路径
+				const normalizedSrc = this.normalizeImagePath(src);
+				const normalizedTagSrc = this.normalizeImagePath(tagSrc);
+
+				if (normalizedSrc === normalizedTagSrc || normalizedSrc.endsWith(normalizedTagSrc)) {
+					const mdLink = `![${tagAlt}](${tagSrc})`;
+					const startPos = { line: i, ch: tagMatch.index };
+					const endPos = { line: i, ch: tagMatch.index + tagMatch[0].length };
+					editor.replaceRange(mdLink, startPos, endPos);
+					return; // 只替换第一个匹配
+				}
+			}
+		}
+	}
+
+	/*-----------------------------------------------------------------*/
+	/*                      FIGURE CAPTION                             */
+	/*-----------------------------------------------------------------*/
+
+	/**
+	 * 添加"添加图片标题"菜单项。
+	 * 点击后弹出对话框，用户输入 Figure ID 和标题文本，
+	 * 然后将图片链接替换为 <figure>/<figcaption> HTML 结构。
+	 */
+	addFigureCaptionMenuItem(menu: Menu, img: HTMLImageElement, activeFile: TFile) {
+		menu.addItem((item) => {
+			item
+				.setTitle(t('contextMenu.addFigureCaption'))
+				.setIcon("text-cursor-input")
+				.onClick(async () => {
+					await this.showFigureCaptionDialog(img, activeFile);
+				});
+		});
+	}
+
+	/**
+	 * 显示 Figure Caption 对话框
+	 */
+	private async showFigureCaptionDialog(img: HTMLImageElement, activeFile: TFile) {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			new Notice(t('contextMenu.notice.noActiveMarkdownView'));
+			return;
+		}
+
+		const { editor } = activeView;
+		const imagePath = this.getImagePathSafe(img);
+		const isExternal = !imagePath;
+		const matches = await this.findImageMatches(editor, imagePath, isExternal);
+
+		// 也检查是否已经是 <figure> 结构或 <img> 标签
+		let existingFigureInfo: { lineStart: number; lineEnd: number; src: string; alt: string; figId: string; caption: string; zoom: string } | null = null;
+
+		const src = img.getAttribute("src");
+		if (src) {
+			const lineCount = editor.getDoc().lineCount();
+			for (let i = 0; i < lineCount; i++) {
+				const line = editor.getLine(i);
+				if (line.includes("<figure") && line.includes("text-align:center")) {
+					// 检查多行 figure 结构
+					let figureBlock = line;
+					let endLine = i;
+					for (let j = i; j < Math.min(i + 5, lineCount); j++) {
+						figureBlock += "\n" + editor.getLine(j);
+						if (editor.getLine(j).includes("</figure>")) {
+							endLine = j;
+							break;
+						}
+					}
+
+					const figSrcMatch = figureBlock.match(/src="([^"]*)"/);
+					const figAltMatch = figureBlock.match(/alt="([^"]*)"/);
+					const figIdMatch = figureBlock.match(/id="([^"]*)"/);
+					const figCaptionMatch = figureBlock.match(/<figcaption>(.*?)<\/figcaption>/);
+					const figZoomMatch = figureBlock.match(/zoom:(\d+)%/);
+
+					if (figSrcMatch) {
+						const normalizedSrc = this.normalizeImagePath(src);
+						const normalizedFigSrc = this.normalizeImagePath(figSrcMatch[1]);
+
+						if (normalizedSrc === normalizedFigSrc || normalizedSrc.endsWith(normalizedFigSrc)) {
+							existingFigureInfo = {
+								lineStart: i,
+								lineEnd: endLine,
+								src: figSrcMatch[1],
+								alt: figAltMatch?.[1] || "",
+								figId: figIdMatch?.[1] || "",
+								caption: figCaptionMatch?.[1] || "",
+								zoom: figZoomMatch?.[1] || "67",
+							};
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		// 使用 Obsidian Modal 创建对话框
+		const modal = new FigureCaptionModal(
+			this.app,
+			existingFigureInfo?.figId || "",
+			existingFigureInfo?.caption || "",
+			existingFigureInfo?.zoom || "67",
+			!!existingFigureInfo,
+			async (figId: string, caption: string, zoom: string, shouldRemove: boolean) => {
+				if (shouldRemove && existingFigureInfo) {
+					// 移除 figure，恢复为 Markdown
+					const mdLink = `![${existingFigureInfo.alt}](${existingFigureInfo.src})`;
+					const startPos = { line: existingFigureInfo.lineStart, ch: 0 };
+					const endPos = { line: existingFigureInfo.lineEnd, ch: editor.getLine(existingFigureInfo.lineEnd).length };
+					editor.replaceRange(mdLink, startPos, endPos);
+					return;
+				}
+
+				if (existingFigureInfo) {
+					// 更新已有的 figure
+					const figureHtml = this.buildFigureHtml(existingFigureInfo.src, existingFigureInfo.alt, figId, caption, zoom);
+					const startPos = { line: existingFigureInfo.lineStart, ch: 0 };
+					const endPos = { line: existingFigureInfo.lineEnd, ch: editor.getLine(existingFigureInfo.lineEnd).length };
+					editor.replaceRange(figureHtml, startPos, endPos);
+				} else if (matches.length > 0) {
+					// 从 Markdown/Wiki 链接转换为 figure
+					const match = matches[0];
+					let imgSrc = "";
+					let imgAlt = "";
+
+					// 尝试匹配 <img> 标签（不强制要求 alt 属性存在）
+					const imgTagMatch = match.fullMatch.match(/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/);
+					if (imgTagMatch) {
+						imgSrc = imgTagMatch[1];
+						const altMatch = match.fullMatch.match(/alt="([^"]*)"/);
+						imgAlt = altMatch ? altMatch[1] : path.parse(imgSrc).name;
+					} else {
+						const wikiMatch = match.fullMatch.match(/!\[\[\s*([^|\]]+?)(?:\|([^|\]]+?))?(?:\|[^|\]]+?)?\s*\]\]/);
+						if (wikiMatch) {
+							imgSrc = wikiMatch[1].trim();
+							imgAlt = wikiMatch[2]?.trim() || path.parse(imgSrc).name;
+						} else {
+							const mdMatch = match.fullMatch.match(/!\[([^|\]]*?)(?:\|[^\]]+?)?\]\(([^)]+)\)/);
+							if (mdMatch) {
+								imgAlt = mdMatch[1].trim() || path.parse(mdMatch[2]).name;
+								imgSrc = mdMatch[2].trim();
+							}
+						}
+					}
+
+					if (!imgSrc) return;
+
+					const figureHtml = this.buildFigureHtml(imgSrc, imgAlt, figId, caption, zoom);
+					const startCh = match.line.indexOf(match.fullMatch);
+					if (startCh === -1) return;
+
+					const startPos = { line: match.lineNumber, ch: startCh };
+					const endPos = { line: match.lineNumber, ch: startCh + match.fullMatch.length };
+					editor.replaceRange(figureHtml, startPos, endPos);
+				}
+			}
+		);
+		modal.open();
+	}
+
+	/**
+	 * 构建 <figure> HTML 块
+	 */
+	private buildFigureHtml(src: string, alt: string, figId: string, caption: string, zoom: string): string {
+		const zoomStyle = zoom ? `zoom:${zoom}%; ` : "";
+		const nameAttr = figId ? ` name="${figId}"` : "";
+		const idAttr = figId ? ` id="${figId}"` : "";
+		const captionText = figId && caption ? `${figId} - ${caption}` : caption || figId || "";
+
+		return `<figure style="text-align:center;">\n  <img src="${src}" alt="${alt}" style="${zoomStyle}display:block; margin:auto;"${nameAttr}${idAttr}>\n  <figcaption>${captionText}</figcaption>\n</figure>`;
 	}
 
 	onunload() {
@@ -2250,5 +2619,262 @@ export class ContextMenu extends Component {
 			this.currentMenu = null;
 		}
 		this.contextMenuRegistered = false;
+	}
+}
+
+/**
+ * Figure 引用项（用于 Suggest Modal 列表）
+ */
+interface FigureReferenceItem {
+	id: string;
+	caption: string;
+	line: number;
+}
+
+/**
+ * Figure 引用选择对话框
+ * 扫描当前笔记中所有带 ID 的 <figure> 块，弹出列表供用户选择并插入锚点引用。
+ */
+export class FigureReferenceSuggestModal extends Modal {
+	private items: FigureReferenceItem[];
+	private editor: Editor;
+	private listContainer: HTMLElement;
+	private searchInput: HTMLInputElement;
+
+	constructor(app: App, items: FigureReferenceItem[], editor: Editor) {
+		super(app);
+		this.items = items;
+		this.editor = editor;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass("image-converter-figure-ref-modal");
+
+		contentEl.createEl("h3", { text: t('figureRef.insertReference') });
+
+		// 搜索框
+		this.searchInput = contentEl.createEl("input", {
+			type: "text",
+			placeholder: t('figureRef.searchPlaceholder'),
+			cls: "image-converter-figure-ref-search",
+		});
+		this.searchInput.focus();
+
+		this.listContainer = contentEl.createDiv("image-converter-figure-ref-list");
+
+		this.renderList(this.items);
+
+		// 搜索过滤
+		this.searchInput.addEventListener("input", () => {
+			const query = this.searchInput.value.toLowerCase();
+			const filtered = this.items.filter(
+				(item) =>
+					item.id.toLowerCase().includes(query) ||
+					item.caption.toLowerCase().includes(query)
+			);
+			this.renderList(filtered);
+		});
+
+		// 键盘 Enter 选中第一个
+		this.searchInput.addEventListener("keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter") {
+				const firstBtn = this.listContainer.querySelector(".image-converter-figure-ref-item") as HTMLElement | null;
+				firstBtn?.click();
+			}
+		});
+	}
+
+	private renderList(items: FigureReferenceItem[]) {
+		this.listContainer.empty();
+
+		if (items.length === 0) {
+			this.listContainer.createEl("div", {
+				text: t('figureRef.noFiguresFound'),
+				cls: "image-converter-figure-ref-empty",
+			});
+			return;
+		}
+
+		for (const item of items) {
+			const row = this.listContainer.createDiv("image-converter-figure-ref-item");
+			const idSpan = row.createSpan({ text: item.id, cls: "image-converter-figure-ref-id" });
+			if (item.caption) {
+				row.createSpan({ text: ` — ${item.caption}`, cls: "image-converter-figure-ref-caption" });
+			}
+			row.createSpan({ text: ` (L${item.line + 1})`, cls: "image-converter-figure-ref-line" });
+
+			row.addEventListener("click", () => {
+				const ref = `[${item.id}](#${item.id})`;
+				this.editor.replaceSelection(ref);
+				new Notice(t('figureRef.notice.referenceInserted'));
+				this.close();
+			});
+		}
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
+/**
+ * 扫描编辑器中所有带 id 的 <figure> 块，返回 FigureReferenceItem 列表。
+ */
+export function scanFigureIds(editor: Editor): FigureReferenceItem[] {
+	const results: FigureReferenceItem[] = [];
+	const lineCount = editor.getDoc().lineCount();
+
+	for (let i = 0; i < lineCount; i++) {
+		const line = editor.getLine(i);
+
+		// 匹配 <img ... id="xxx"> 或 <figure ... id="xxx">
+		const idMatches = [...line.matchAll(/id="([^"]+)"/g)];
+		for (const m of idMatches) {
+			const figId = m[1];
+			if (!figId) continue;
+
+			// 尝试提取 figcaption 文本（可能在同一行或后续行）
+			let caption = "";
+			const captionMatch = line.match(/<figcaption>(.*?)<\/figcaption>/);
+			if (captionMatch) {
+				caption = captionMatch[1];
+			} else {
+				// 查看后续几行
+				for (let j = i + 1; j < Math.min(i + 5, lineCount); j++) {
+					const nextLine = editor.getLine(j);
+					const nextCaptionMatch = nextLine.match(/<figcaption>(.*?)<\/figcaption>/);
+					if (nextCaptionMatch) {
+						caption = nextCaptionMatch[1];
+						break;
+					}
+					if (nextLine.includes("</figure>")) break;
+				}
+			}
+
+			// 避免重复添加同一 ID
+			if (!results.some((r) => r.id === figId)) {
+				results.push({ id: figId, caption, line: i });
+			}
+		}
+	}
+
+	return results;
+}
+
+/**
+ * Figure Caption 输入对话框
+ */
+class FigureCaptionModal extends Modal {
+	private figId: string;
+	private caption: string;
+	private zoom: string;
+	private isExisting: boolean;
+	private onSubmit: (figId: string, caption: string, zoom: string, shouldRemove: boolean) => Promise<void>;
+
+	constructor(
+		app: App,
+		figId: string,
+		caption: string,
+		zoom: string,
+		isExisting: boolean,
+		onSubmit: (figId: string, caption: string, zoom: string, shouldRemove: boolean) => Promise<void>
+	) {
+		super(app);
+		this.figId = figId;
+		this.caption = caption;
+		this.zoom = zoom;
+		this.isExisting = isExisting;
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass("image-converter-figure-modal");
+
+		contentEl.createEl("h3", { text: t('contextMenu.figure.title') });
+
+		// Figure ID 输入
+		new Setting(contentEl)
+			.setName(t('contextMenu.figure.idLabel'))
+			.addText((text) => {
+				text.setPlaceholder(t('contextMenu.figure.idPlaceholder'))
+					.setValue(this.figId)
+					.onChange((value) => {
+						this.figId = value;
+					});
+			});
+
+		// Caption 输入
+		new Setting(contentEl)
+			.setName(t('contextMenu.figure.captionLabel'))
+			.addText((text) => {
+				text.setPlaceholder(t('contextMenu.figure.captionPlaceholder'))
+					.setValue(this.caption)
+					.onChange((value) => {
+						this.caption = value;
+					});
+			});
+
+		// Zoom 输入
+		new Setting(contentEl)
+			.setName(t('contextMenu.zoom.title'))
+			.addDropdown((dropdown) => {
+				const zoomOptions = ["25", "33", "50", "67", "75", "100"];
+				for (const opt of zoomOptions) {
+					dropdown.addOption(opt, `${opt}%`);
+				}
+				dropdown.setValue(this.zoom || "67");
+				dropdown.onChange((value) => {
+					this.zoom = value;
+				});
+			});
+
+		// 按钮区域
+		const buttonContainer = contentEl.createDiv("image-converter-figure-buttons");
+
+		if (this.isExisting) {
+			// 移除 figure caption 按钮
+			new Setting(buttonContainer)
+				.addButton((btn) => {
+					btn.setButtonText(t('contextMenu.figure.removeCaption'))
+						.onClick(async () => {
+							await this.onSubmit("", "", "", true);
+							this.close();
+						});
+				})
+				.addButton((btn) => {
+					btn.setButtonText(t('common.apply'))
+						.setCta()
+						.onClick(async () => {
+							await this.onSubmit(this.figId, this.caption, this.zoom, false);
+							this.close();
+						});
+				});
+		} else {
+			new Setting(buttonContainer)
+				.addButton((btn) => {
+					btn.setButtonText(t('common.cancel'))
+						.onClick(() => {
+							this.close();
+						});
+				})
+				.addButton((btn) => {
+					btn.setButtonText(t('common.apply'))
+						.setCta()
+						.onClick(async () => {
+							await this.onSubmit(this.figId, this.caption, this.zoom, false);
+							this.close();
+						});
+				});
+		}
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }

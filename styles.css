@@ -3740,3 +3740,67 @@ button.image-converter-encoder-detected:hover,
 		font-size: 0.9em;
 	}
 }
+
+/* ==================== Figure Reference Modal ==================== */
+.image-converter-figure-ref-modal {
+	padding: 16px;
+}
+
+.image-converter-figure-ref-modal h3 {
+	margin-top: 0;
+	margin-bottom: 12px;
+}
+
+.image-converter-figure-ref-search {
+	width: 100%;
+	padding: 8px 12px;
+	margin-bottom: 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 14px;
+}
+
+.image-converter-figure-ref-search:focus {
+	border-color: var(--interactive-accent);
+	outline: none;
+}
+
+.image-converter-figure-ref-list {
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+.image-converter-figure-ref-item {
+	padding: 8px 12px;
+	cursor: pointer;
+	border-radius: 4px;
+	transition: background-color 0.1s ease;
+}
+
+.image-converter-figure-ref-item:hover {
+	background: var(--background-modifier-hover);
+}
+
+.image-converter-figure-ref-id {
+	font-weight: 600;
+	color: var(--interactive-accent);
+}
+
+.image-converter-figure-ref-caption {
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.image-converter-figure-ref-line {
+	color: var(--text-faint);
+	font-size: 0.8em;
+}
+
+.image-converter-figure-ref-empty {
+	padding: 16px;
+	text-align: center;
+	color: var(--text-muted);
+	font-style: italic;
+}

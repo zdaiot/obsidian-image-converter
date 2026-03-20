@@ -7,6 +7,7 @@ interface ObsidianEditorWithCM {
 }
 import { LinkFormat, PathFormat } from "./LinkFormatSettings";
 import { NonDestructiveResizePreset, ResizeScaleMode, ResizeUnits } from "./NonDestructiveResizeSettings";
+import { t } from "./i18n";
 
 
 export class LinkFormatter {
@@ -18,7 +19,8 @@ export class LinkFormatter {
         linkFormat: LinkFormat,
         pathFormat: PathFormat,
         activeFile: TFile | null,
-        resizePreset?: NonDestructiveResizePreset | null
+        resizePreset?: NonDestructiveResizePreset | null,
+        hideAltText?: boolean
     ): Promise<string> {
         if (!linkPath) {
             throw new Error("Link path cannot be empty.");
@@ -47,9 +49,12 @@ export class LinkFormatter {
             );
         }
 
+        // 对于 Markdown 格式，根据 hideAltText 设置决定是否使用 alt 文本
+        const altText = hideAltText ? "" : file.basename;
+
         return linkFormat === "wikilink"
             ? `![[${formattedPath}${resizeParams}]]`
-            : `![${resizeParams}](${this.encodeMarkdownPath(formattedPath)})`;
+            : `![${altText}${resizeParams}](${this.encodeMarkdownPath(formattedPath)})`;
     }
 
     private encodeMarkdownPath(path: string): string {
@@ -545,7 +550,7 @@ export class LinkFormatter {
 
             img.onerror = (error) => {
                 // console.error(`Failed to load image ${file.name}:`, error);
-                new Notice(`Failed to load image dimensions for ${file.name}`);
+                new Notice(t('linkFormatter.notice.failedToLoadDimensions', { name: file.name }));
                 resolve(null);
             };
 

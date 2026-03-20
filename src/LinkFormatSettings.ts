@@ -9,6 +9,7 @@ export interface LinkFormatPreset {
     pathFormat: PathFormat;
     prependCurrentDir: boolean;
     hideFolders: boolean;
+    hideAltText: boolean; // 是否隐藏 Markdown 链接中的 alt 文本
 }
 
 export class LinkFormatSettings {
@@ -23,6 +24,7 @@ export class LinkFormatSettings {
                 pathFormat: "shortest",
                 prependCurrentDir: false,
                 hideFolders: false,
+                hideAltText: true,
             },
             {
                 name: "Markdown, Relative",
@@ -30,6 +32,7 @@ export class LinkFormatSettings {
                 pathFormat: "relative",
                 prependCurrentDir: true,
                 hideFolders: false,
+                hideAltText: true,
             },
             // ... more presets can be added here
         ];
