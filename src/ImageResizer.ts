@@ -1145,7 +1145,36 @@ export class ImageResizer extends Component {
                     const cachedHeight = cachedAlignment?.height || undefined; // Default to undefined if not found which we later filter out
                     const dimensionPart = `${Math.round(resolvedWidth)}x${Math.round(resolvedHeight)}`;
 
-                    if (match.type === "md") {
+                    if (match.type === "html") {
+                        // HTML <img> 标签：直接更新 width 和 height 属性
+                        const newWidth = Math.round(resolvedWidth);
+                        const newHeight = Math.round(resolvedHeight);
+                        let newTag = match.fullMatch;
+
+                        // 更新或添加 width 属性
+                        if (/width="\d+"/i.test(newTag)) {
+                            newTag = newTag.replace(/width="\d+"/i, `width="${newWidth}"`);
+                        } else {
+                            newTag = newTag.replace(/<img\s+/i, `<img width="${newWidth}" `);
+                        }
+
+                        // 更新或添加 height 属性
+                        if (/height="\d+"/i.test(newTag)) {
+                            newTag = newTag.replace(/height="\d+"/i, `height="${newHeight}"`);
+                        } else {
+                            newTag = newTag.replace(/<img\s+/i, `<img height="${newHeight}" `);
+                        }
+
+                        // 拖动调整大小后，移除 zoom 样式（zoom 与 width/height 冲突）
+                        // 先移除 style 中的 zoom 部分，保留其他样式
+                        newTag = newTag.replace(/zoom:\s*\d+%;\s*/gi, "");
+                        newTag = newTag.replace(/;\s*zoom:\s*\d+%/gi, "");
+                        // 清理可能残留的空 style 属性
+                        newTag = newTag.replace(/\s*style="\s*;?\s*"/i, "");
+
+                        updatedContent = newTag;
+
+                    } else if (match.type === "md") {
 
                         if (this.currentHandle === "border") {
                             widthParam = `${Math.round(resolvedWidth)}x`;
@@ -1248,13 +1277,36 @@ export class ImageResizer extends Component {
         // Find link start and end positions
         const internalLinkStart = lineContent.indexOf("![[");
         const externalLinkStart = lineContent.indexOf("![");
+        const imgTagStart = lineContent.indexOf("<img ");
         const linkEnd = lineContent.search(/\]\]|\)/); // Find closing ]] or )
+        // 查找 <img> 标签的结尾位置，支持 /> 和 > 两种写法
+        let imgTagEnd = -1;
+        let imgTagEndLen = 0; // 结尾标记的长度
+        if (imgTagStart !== -1) {
+            const selfCloseEnd = lineContent.indexOf("/>", imgTagStart);
+            const normalEnd = lineContent.indexOf(">", imgTagStart + 5); // 跳过 "<img "
+            if (selfCloseEnd !== -1 && (normalEnd === -1 || selfCloseEnd <= normalEnd)) {
+                imgTagEnd = selfCloseEnd;
+                imgTagEndLen = 2; // "/>"
+            } else if (normalEnd !== -1) {
+                imgTagEnd = normalEnd;
+                imgTagEndLen = 1; // ">"
+            }
+        }
+
+        // 判断当前行是否是 <img> 标签
+        const isImgTag = imgTagStart !== -1 && imgTagEnd !== -1;
 
         let newCursorPos: EditorPosition | undefined;
 
         if (this.plugin.settings.resizeCursorLocation === "front") {
             // Set cursor to the front of the link, but not before position 0
-            if (internalLinkStart !== -1 || externalLinkStart !== -1) {
+            if (isImgTag) {
+                newCursorPos = {
+                    line: cursorPos.line,
+                    ch: Math.max(0, imgTagStart),
+                };
+            } else if (internalLinkStart !== -1 || externalLinkStart !== -1) {
                 newCursorPos = {
                     line: cursorPos.line,
                     ch: Math.max(0, Math.max(internalLinkStart, externalLinkStart)), // Ensure ch is not negative
@@ -1264,7 +1316,12 @@ export class ImageResizer extends Component {
             }
         } else if (this.plugin.settings.resizeCursorLocation === "back") {
             // Set cursor to the end of the link
-            if (linkEnd !== -1) {
+            if (isImgTag) {
+                newCursorPos = {
+                    line: cursorPos.line,
+                    ch: imgTagEnd + imgTagEndLen, // 结尾标记长度
+                };
+            } else if (linkEnd !== -1) {
                 newCursorPos = {
                     line: cursorPos.line,
                     ch: linkEnd + (lineContent[linkEnd] === "]" ? 2 : 1),
@@ -1274,7 +1331,9 @@ export class ImageResizer extends Component {
             }
         } else if (this.plugin.settings.resizeCursorLocation === "below") {
             // Calculate the end line of the image link
-            if (linkEnd !== -1) {
+            if (isImgTag) {
+                newCursorPos = { line: cursorPos.line + 1, ch: 0 };
+            } else if (linkEnd !== -1) {
                 const endLine = this.getEndLineOfLink(editor, cursorPos.line, internalLinkStart !== -1 ? internalLinkStart : externalLinkStart, linkEnd);
                 newCursorPos = { line: endLine + 1, ch: 0 };
             }
@@ -1355,7 +1414,7 @@ export class ImageResizer extends Component {
      * @returns An array of match objects with details about each image link.
      */
     private findAllMatches(content: string): Array<{
-        type: "md" | "wiki";
+        type: "md" | "wiki" | "html";
         fullMatch: string;
         index: number;
         path: string;
@@ -1369,7 +1428,7 @@ export class ImageResizer extends Component {
         };
     }> {
         const matches: Array<{
-            type: "md" | "wiki";
+            type: "md" | "wiki" | "html";
             fullMatch: string;
             index: number;
             path: string;
@@ -1472,6 +1531,38 @@ export class ImageResizer extends Component {
                 spacing: {
                     beforeFirstPipe: mdMatch[0].match(/\[([^\]]*?)(\s*)\|/)?.[2] || '',
                     beforeSecondPipe: mdMatch[0].match(/\|[^|]*?(\s*)\|/)?.[1] || ''
+                }
+            });
+        }
+
+        // Find HTML <img> tags
+        const imgTagRegex = /<img\s+[^>]*src="([^"]*)"[^>]*\/?>/gi;
+        let imgMatch;
+        while ((imgMatch = imgTagRegex.exec(content)) !== null) {
+            const imgSrc = imgMatch[1].trim();
+            const fullTag = imgMatch[0];
+
+            // 提取 alt 属性
+            const altAttr = fullTag.match(/alt="([^"]*)"/i);
+            const altText = altAttr ? altAttr[1] : undefined;
+
+            // 提取 width 和 height 属性
+            const widthAttr = fullTag.match(/width="(\d+)"/i);
+            const heightAttr = fullTag.match(/height="(\d+)"/i);
+            const existingWidth = widthAttr ? parseInt(widthAttr[1], 10) : undefined;
+            const existingHeight = heightAttr ? parseInt(heightAttr[1], 10) : undefined;
+
+            matches.push({
+                type: "html",
+                fullMatch: fullTag,
+                index: imgMatch.index,
+                path: imgSrc,
+                altText,
+                existingWidth,
+                existingHeight,
+                spacing: {
+                    beforeFirstPipe: '',
+                    beforeSecondPipe: ''
                 }
             });
         }

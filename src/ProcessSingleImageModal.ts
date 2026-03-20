@@ -840,10 +840,20 @@ new Notice(t('singleModal.notice.couldNotFindRenamedFile', { path: fullPath }));
                 const escapedOriginalName = this.imageFile.name.replace(/[[\]]/g, '\\$&');
                 const linkRegex = new RegExp(`!\\[\\[${escapedOriginalName}(?:\\|[^\\]]+)?\\]\\[\\]|!\\[.*?\\]\\((${escapedOriginalName})(?:\\?[^)]*)?\\)`, 'g');
 
-                // Use the new filename for the link
+                // Use the new filename for the link (for wiki/markdown formats)
                 const newLinkText = `![[${newFilename}]]`;
 
-                const newContent = fileContent.replace(linkRegex, newLinkText);
+                let newContent = fileContent.replace(linkRegex, newLinkText);
+
+                // 同时处理 HTML <img> 标签中的 src 属性
+                const escapedOriginalNameForHtml = this.imageFile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const imgTagRegex = new RegExp(`(<img\\s+[^>]*src=")${escapedOriginalNameForHtml}("[^>]*\\/?>)`, 'g');
+                newContent = newContent.replace(imgTagRegex, `$1${newFilename}$2`);
+
+                // 也处理 src 中包含路径前缀的情况，如 src="subfolder/image.png"
+                const imgTagRegexWithPath = new RegExp(`(<img\\s+[^>]*src="[^"]*/)${escapedOriginalNameForHtml}("[^>]*\\/?>)`, 'g');
+                newContent = newContent.replace(imgTagRegexWithPath, `$1${newFilename}$2`);
+
                 if (newContent !== fileContent) {
                     editor.setValue(newContent);
 new Notice(t('singleModal.notice.linkUpdated', { name: activeView.file?.name || '' }), 1000);

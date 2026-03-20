@@ -560,9 +560,9 @@ export class ContextMenu extends Component {
 			return line.replace(
 				/<img\s+[^>]*src="([^"]*)"[^>]*\/?>/gi,
 				(fullMatch, src) => {
-					// 构建新的 <img> 标签，保留 src 和 style 中的 zoom
+					// 提取 style 中的 zoom 部分（仅在没有设置 dimensionsPart 时保留）
 					const zoomMatch = fullMatch.match(/style="[^"]*zoom:\s*(\d+)%/);
-					const zoomPart = zoomMatch ? `zoom:${zoomMatch[1]}%;` : "";
+					const zoomPart = (!dimensionsPart && zoomMatch) ? `zoom:${zoomMatch[1]}%;` : "";
 
 					let attrs = `src="${src}"`;
 					if (newCaption) {

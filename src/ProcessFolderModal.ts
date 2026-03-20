@@ -895,6 +895,7 @@ new Notice(t('folderModal.errorInvalidFolder'));
     extractLinkedImageNames(content: string): string[] {
         const wikiRegex = /!\[\[([^\]]+?)(?:\|[^\]]+?)?\]\]/g; // Matches ![[image.png]] and ![[image.png|141]]
         const markdownRegex = /!\[.*?\]\(([^)]+?)\)/g; // Matches ![alt text](image.png) and ![alt text](image.png "Title")
+        const imgTagRegex = /<img\s+[^>]*src="([^"]*)"[^>]*\/?>/gi; // Matches <img src="image.png" ... />
         const imageNames: string[] = [];
         let match;
 
@@ -905,6 +906,11 @@ new Notice(t('folderModal.errorInvalidFolder'));
 
         // Find Markdown-style links
         while ((match = markdownRegex.exec(content)) !== null) {
+            imageNames.push(match[1]);
+        }
+
+        // Find HTML <img> tags
+        while ((match = imgTagRegex.exec(content)) !== null) {
             imageNames.push(match[1]);
         }
 
