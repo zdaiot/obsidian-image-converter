@@ -1175,28 +1175,12 @@ export class ImageResizer extends Component {
                         updatedContent = newTag;
 
                     } else if (match.type === "md") {
-
-                        if (this.currentHandle === "border") {
-                            widthParam = `${Math.round(resolvedWidth)}x`;
-                            heightParam = `${Math.round(resolvedHeight)}`;
-                        } else if (["n", "s"].includes(currentHandle || "")) {
-                            widthParam = cachedWidth ?? (match.existingWidth !== undefined ? `${match.existingWidth}x` : "x");
-                            heightParam = `${Math.round(resolvedHeight)}`;
-                            if (widthParam === "x") widthParam = `${this.initialWidth}x`;
-                        } else if (["e", "w"].includes(currentHandle || "")) {
-                            widthParam = `${Math.round(resolvedWidth)}x`;
-                            heightParam = cachedHeight ?? (match.existingHeight !== undefined ? `${match.existingHeight}` : "");
-                            if (heightParam === "") heightParam = `${this.initialHeight}`;
-                        } else {
-                            widthParam = `${Math.round(resolvedWidth)}x`;
-                            heightParam = `${Math.round(resolvedHeight)}`;
-                        }
-
-                        if (match.caption) {
-                            updatedContent = `![${match.altText || ""}${match.spacing.beforeFirstPipe}|${match.caption}${match.spacing.beforeSecondPipe}|${dimensionPart}](${match.path})`;
-                        } else {
-                            updatedContent = `![${match.altText || ""}${match.spacing.beforeFirstPipe}|${dimensionPart}](${match.path})`;
-                        }
+                        // 拖动调整大小后，将 Markdown 图片语法转换为 HTML <img> 标签
+                        // 这样生成的是标准 HTML 语法，跨平台兼容性更好
+                        const mdNewWidth = Math.round(resolvedWidth);
+                        const mdNewHeight = Math.round(resolvedHeight);
+                        const altText = match.altText || match.caption || "";
+                        updatedContent = `<img src="${match.path}" alt="${altText}" width="${mdNewWidth}" height="${mdNewHeight}" />`;
 
 
 
