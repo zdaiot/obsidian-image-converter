@@ -145,6 +145,11 @@ export default class ImageConverterPlugin extends Plugin {
         // );
 
 
+        // 处理没有扩展名的图片文件：
+        // Obsidian 会将 <img src="Agent入门/640-xxx"> 转换为 app://obsidian.md/Agent入门/640-xxx
+        // 无扩展名的文件会导致 ERR_FILE_NOT_FOUND，需要通过读取文件内容创建 blob URL 来修复
+        this.setupExtensionlessImageFixer();
+
         // Wait for layout to be ready before initializing view-dependent components
         this.app.workspace.onLayoutReady(() => {
             this.initializeComponents().catch((err) => {
@@ -196,6 +201,310 @@ new Notice(t('main.notice.failedToInitialize'));
             // }, true);
 
         });
+    }
+
+    // ==========================
+    // 无扩展名图片修复功能
+    // ==========================
+
+    /** 全局 MutationObserver 引用，用于在 unload 时断开 */
+    private extensionlessImgObserver: MutationObserver | null = null;
+    /** 已创建的 blob URL 集合，用于 unload 时统一回收 */
+    private extensionlessBlobUrls: Set<string> = new Set();
+
+    /**
+     * 设置无扩展名图片修复器。
+     * 使用全局 MutationObserver 监听所有 <img> 元素的添加和 src 变化，
+     * 当发现 app://obsidian.md/ 路径下的无扩展名图片加载失败时，
+     * 读取 vault 中的实际文件内容并替换为 blob URL。
+     */
+    private setupExtensionlessImageFixer(): void {
+        console.debug('[Image Converter] setupExtensionlessImageFixer: initializing');
+
+        // 处理单个 img 元素
+        const handleImg = (img: HTMLImageElement) => {
+            if (img.hasAttribute('data-ext-fixed')) return;
+            const src = img.getAttribute('src');
+            if (!src) return;
+
+            // 只处理 app://obsidian.md/ 开头的路径（Obsidian 转换后的内部路径）
+            // 以及原始相对路径（可能在 post processor 阶段还没被转换）
+            const vaultRelativePath = this.extractVaultRelativePath(src);
+            if (!vaultRelativePath) return;
+
+            // 检查文件名是否缺少扩展名
+            const filename = vaultRelativePath.split('/').pop() || '';
+            if (!this.isLikelyExtensionlessImage(filename)) return;
+
+            // 标记为已处理，防止重复
+            img.setAttribute('data-ext-fixed', 'pending');
+            console.debug('[Image Converter] handleImg: detected extensionless image, vaultPath =', vaultRelativePath);
+
+            this.resolveAndFixImage(img, src, vaultRelativePath);
+        };
+
+        // 也通过 img.onerror 来捕获 — 当 Obsidian 尝试加载失败时触发
+        const attachErrorHandler = (img: HTMLImageElement) => {
+            if (img.hasAttribute('data-ext-error-attached')) return;
+            img.setAttribute('data-ext-error-attached', 'true');
+            img.addEventListener('error', () => {
+                console.debug('[Image Converter] img.onerror fired, src =', img.getAttribute('src'));
+                if (!img.hasAttribute('data-ext-fixed') || img.getAttribute('data-ext-fixed') === 'pending') {
+                    handleImg(img);
+                }
+            }, { once: true });
+        };
+
+        // 扫描一个容器中的所有 img
+        const scanContainer = (container: Element | Document) => {
+            const imgs = container.querySelectorAll('img');
+            for (const img of Array.from(imgs)) {
+                const imgEl = img as HTMLImageElement;
+                attachErrorHandler(imgEl);
+                handleImg(imgEl);
+            }
+        };
+
+        // 1. 注册 Markdown Post Processor（阅读模式）
+        this.registerMarkdownPostProcessor((el) => {
+            console.debug('[Image Converter] PostProcessor: scanning rendered block for extensionless images');
+            scanContainer(el);
+        });
+
+        // 2. 全局 MutationObserver（Live Preview 和所有模式）
+        this.extensionlessImgObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                // 检查新增的节点
+                for (const node of Array.from(mutation.addedNodes)) {
+                    if (node instanceof HTMLImageElement) {
+                        attachErrorHandler(node);
+                        handleImg(node);
+                    } else if (node instanceof Element) {
+                        scanContainer(node);
+                    }
+                }
+                // 检查属性变化（src 被 Obsidian 修改时）
+                if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
+                    const target = mutation.target;
+                    if (target instanceof HTMLImageElement && !target.hasAttribute('data-ext-fixed')) {
+                        attachErrorHandler(target);
+                        handleImg(target);
+                    }
+                }
+                // 清理被移除的节点中的 blob URL
+                for (const node of Array.from(mutation.removedNodes)) {
+                    if (node instanceof Element) {
+                        const imgs = node.querySelectorAll('img[data-ext-fixed="done"]');
+                        for (const img of Array.from(imgs)) {
+                            const blobSrc = (img as HTMLImageElement).getAttribute('src');
+                            if (blobSrc && blobSrc.startsWith('blob:')) {
+                                URL.revokeObjectURL(blobSrc);
+                                this.extensionlessBlobUrls.delete(blobSrc);
+                            }
+                        }
+                        if (node instanceof HTMLImageElement) {
+                            const blobSrc = node.getAttribute('src');
+                            if (blobSrc && blobSrc.startsWith('blob:')) {
+                                URL.revokeObjectURL(blobSrc);
+                                this.extensionlessBlobUrls.delete(blobSrc);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 在 document.body 上观察，确保能捕获所有 Obsidian 渲染的 img
+        this.extensionlessImgObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['src']
+        });
+
+        // 3. 确保插件卸载时清理
+        this.register(() => {
+            if (this.extensionlessImgObserver) {
+                this.extensionlessImgObserver.disconnect();
+                this.extensionlessImgObserver = null;
+            }
+            // 回收所有 blob URL
+            for (const url of this.extensionlessBlobUrls) {
+                URL.revokeObjectURL(url);
+            }
+            this.extensionlessBlobUrls.clear();
+        });
+
+        // 4. 对当前已存在的 img 做一次初始扫描
+        setTimeout(() => {
+            console.debug('[Image Converter] setupExtensionlessImageFixer: initial scan');
+            scanContainer(document.body);
+        }, 500);
+    }
+
+    /**
+     * 从 img src 中提取 vault 相对路径。
+     * 支持格式：
+     *   - app://obsidian.md/Agent入门/640-xxx  → Agent入门/640-xxx
+     *   - Agent入门/640-xxx                    → Agent入门/640-xxx
+     * 返回 null 表示不需要处理（外部链接、data URI 等）。
+     */
+    private extractVaultRelativePath(src: string): string | null {
+        if (!src) return null;
+        // 排除不需要处理的 URI
+        if (src.startsWith('data:') || src.startsWith('blob:') ||
+            src.startsWith('http://') || src.startsWith('https://')) {
+            return null;
+        }
+
+        let cleanSrc = decodeURIComponent(src.split('?')[0].split('#')[0]);
+
+        // 处理 app://obsidian.md/path 格式
+        if (cleanSrc.startsWith('app://')) {
+            // app://obsidian.md/Agent入门/640-xxx
+            // 去掉 app:// 后，第一段是 host（如 obsidian.md 或 local），后面是路径
+            const withoutProtocol = cleanSrc.substring('app://'.length);
+            const slashIndex = withoutProtocol.indexOf('/');
+            if (slashIndex >= 0) {
+                cleanSrc = withoutProtocol.substring(slashIndex + 1);
+            } else {
+                return null;
+            }
+        }
+
+        return cleanSrc || null;
+    }
+
+    /**
+     * 判断文件名是否像是一个无扩展名的图片文件。
+     */
+    private isLikelyExtensionlessImage(filename: string): boolean {
+        if (!filename) return false;
+        const dotIndex = filename.lastIndexOf('.');
+        if (dotIndex <= 0) {
+            // 没有扩展名，或以 . 开头（隐藏文件）
+            return true;
+        }
+        const ext = filename.substring(dotIndex + 1).toLowerCase();
+        // 已知图片扩展名 → 不需要处理
+        const knownImageExtensions = new Set([
+            'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico',
+            'tif', 'tiff', 'heic', 'heif', 'avif', 'apng', 'jfif'
+        ]);
+        if (knownImageExtensions.has(ext)) return false;
+        // 已知非图片扩展名 → 不处理
+        const nonImageExtensions = new Set([
+            'md', 'txt', 'pdf', 'html', 'css', 'js', 'ts', 'json', 'xml',
+            'yaml', 'yml', 'csv', 'mp3', 'mp4', 'wav', 'avi', 'mov',
+            'zip', 'rar', 'tar', 'gz', 'exe', 'dll', 'so'
+        ]);
+        if (nonImageExtensions.has(ext)) return false;
+        // 未知扩展名 — 可能是无扩展名的图片
+        return true;
+    }
+
+    /**
+     * 根据 vault 相对路径找到文件，读取内容并修复 img 的 src。
+     */
+    private resolveAndFixImage(img: HTMLImageElement, originalSrc: string, vaultRelativePath: string): void {
+        const activeFile = this.app.workspace.getActiveFile();
+
+        // 构建多个候选路径
+        const tryPaths: string[] = [];
+        // 1. 直接使用 vault 相对路径
+        tryPaths.push(vaultRelativePath);
+        // 2. 如果当前笔记在子目录中，尝试相对于笔记目录的路径
+        if (activeFile?.parent) {
+            const parentPath = activeFile.parent.path;
+            if (parentPath) {
+                tryPaths.unshift(`${parentPath}/${vaultRelativePath}`);
+            }
+        }
+
+        let foundFile: TFile | null = null;
+        for (const tryPath of tryPaths) {
+            const normalized = tryPath.replace(/\\/g, '/').replace(/^\//, '');
+            const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
+            if (abstractFile instanceof TFile) {
+                foundFile = abstractFile;
+                break;
+            }
+        }
+
+        if (!foundFile) {
+            console.debug('[Image Converter] resolveAndFixImage: file NOT found. Tried:', tryPaths);
+            img.setAttribute('data-ext-fixed', 'not-found');
+            return;
+        }
+
+        console.debug('[Image Converter] resolveAndFixImage: found file:', foundFile.path);
+
+        // 读取文件内容并检测 MIME 类型
+        this.app.vault.readBinary(foundFile).then((buffer) => {
+            const mimeType = this.detectMimeTypeFromBuffer(buffer);
+            console.debug('[Image Converter] resolveAndFixImage: MIME =', mimeType, ', size =', buffer.byteLength);
+            if (mimeType && mimeType !== 'unknown') {
+                const blob = new Blob([buffer], { type: mimeType });
+                const blobUrl = URL.createObjectURL(blob);
+                this.extensionlessBlobUrls.add(blobUrl);
+                img.setAttribute('src', blobUrl);
+                img.setAttribute('data-original-src', originalSrc);
+                img.setAttribute('data-ext-fixed', 'done');
+                console.debug('[Image Converter] resolveAndFixImage: replaced src with blob URL');
+            } else {
+                console.debug('[Image Converter] resolveAndFixImage: unknown MIME type, skipping');
+                img.setAttribute('data-ext-fixed', 'unknown-mime');
+            }
+        }).catch((err) => {
+            console.debug('[Image Converter] resolveAndFixImage: read error:', err);
+            img.setAttribute('data-ext-fixed', 'error');
+        });
+    }
+
+    /**
+     * 通过文件的 magic bytes 检测 MIME 类型
+     */
+    private detectMimeTypeFromBuffer(buffer: ArrayBuffer): string {
+        const arr = new Uint8Array(buffer).subarray(0, 24);
+        let headerHex = '';
+        for (let i = 0; i < Math.min(arr.length, 12); i++) {
+            headerHex += arr[i].toString(16).padStart(2, '0');
+        }
+        headerHex = headerHex.toLowerCase();
+
+        if (headerHex.startsWith('89504e47')) return 'image/png';
+        if (headerHex.startsWith('47494638')) return 'image/gif';
+        if (headerHex.startsWith('ffd8ff')) return 'image/jpeg';
+        if (headerHex.startsWith('424d')) return 'image/bmp';
+        if (headerHex.startsWith('52494646')) {
+            // RIFF — 可能是 WEBP
+            // 需要读取更多字节来确认
+            if (arr.length >= 12) {
+                const webpMark = String.fromCharCode(arr[8], arr[9], arr[10], arr[11]);
+                if (webpMark === 'WEBP') return 'image/webp';
+            }
+        }
+        if (headerHex.startsWith('4949') || headerHex.startsWith('4d4d')) return 'image/tiff';
+        if (headerHex.startsWith('000000') && arr.length >= 12) {
+            // ISO Base Media File Format (HEIC/AVIF)
+            const ftypCheck = String.fromCharCode(arr[4], arr[5], arr[6], arr[7]);
+            if (ftypCheck === 'ftyp') {
+                const brand = String.fromCharCode(arr[8], arr[9], arr[10], arr[11]).trim();
+                if (['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)) return 'image/heic';
+                if (['avif', 'avis'].includes(brand)) return 'image/avif';
+            }
+        }
+        // SVG 检测
+        try {
+            const textStart = new TextDecoder('utf-8').decode(arr.subarray(0, 24));
+            if (textStart.trimStart().startsWith('<svg') || (textStart.includes('<?xml') && textStart.includes('svg'))) {
+                return 'image/svg+xml';
+            }
+        } catch {
+            // 忽略解码错误
+        }
+
+        return 'unknown';
     }
 
     async initializeComponents() {

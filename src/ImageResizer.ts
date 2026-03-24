@@ -307,7 +307,9 @@ export class ImageResizer extends Component {
         if (this.resizeState.isResizing) return;
 
         // Handle external images: add a border and perform edge detection for cursor change
-        if (target.instanceOf(HTMLImageElement) && this.isExternalLink(target.src)) {
+        // 使用 data-original-src（如果存在）来判断是否为外部链接，因为 src 可能已被替换为 blob URL
+        const effectiveSrc = (target as HTMLImageElement).getAttribute?.('data-original-src') || (target as HTMLImageElement).src || '';
+        if (target.instanceOf(HTMLImageElement) && this.isExternalLink(effectiveSrc)) {
             if (this.activeImage === target && target.hasClass("image-resize-border")) {
                 // Already active; just update edge detection
                 this.handleEdgeDetection(event, target);
@@ -320,7 +322,7 @@ export class ImageResizer extends Component {
         }
 
         // Handle internal images: create resize handles
-        if (target.instanceOf(HTMLImageElement) && !this.isExternalLink(target.src)) {
+        if (target.instanceOf(HTMLImageElement) && !this.isExternalLink(effectiveSrc)) {
             // If this image already has a container/handles, do nothing
             const container = target.matchParent(".image-resize-container");
             if (this.activeImage === target && this.handles.length > 0 && container) {
@@ -1562,7 +1564,8 @@ export class ImageResizer extends Component {
      */
     private getImageName(img: HTMLImageElement | null): string | null {
         if (!img) return null;
-        let imageName = img.getAttribute("src");
+        // 如果 src 已被替换为 blob URL（无扩展名图片修复），使用原始 src
+        let imageName = img.getAttribute("data-original-src") || img.getAttribute("src");
 
         if (!imageName) return null;
 
