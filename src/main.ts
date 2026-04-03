@@ -77,6 +77,8 @@ export default class ImageConverterPlugin extends Plugin {
     
     private processedImage: ArrayBuffer | null = null;
     private temporaryBuffers: (ArrayBuffer | Blob | null)[] = [];
+    // 用于防止换行符规范化时的递归触发
+    private isNormalizingLineEndings = false;
 
     async onload() {
         // 初始化国际化
@@ -149,6 +151,9 @@ export default class ImageConverterPlugin extends Plugin {
         // Obsidian 会将 <img src="Agent入门/640-xxx"> 转换为 app://obsidian.md/Agent入门/640-xxx
         // 无扩展名的文件会导致 ERR_FILE_NOT_FOUND，需要通过读取文件内容创建 blob URL 来修复
         this.setupExtensionlessImageFixer();
+
+        // 注册文件修改事件，规范化换行符
+        this.setupLineEndingNormalizer();
 
         // Wait for layout to be ready before initializing view-dependent components
         this.app.workspace.onLayoutReady(() => {
@@ -712,6 +717,58 @@ new Notice(t('main.notice.noActiveFileDetected'));
     // Save settings method
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    /**
+     * 注册文件修改事件，在 Markdown 文件被修改时规范化换行符。
+     * 根据设置中的 lineEnding 选项，将文件内容中的换行符统一为 LF 或 CRLF。
+     */
+    // 规范化单个文件的换行符
+    private async normalizeFileLineEndings(file: TFile): Promise<void> {
+        if (this.isNormalizingLineEndings) return;
+        // 仅处理 Markdown 和 Canvas 文件
+        if (file.extension !== 'md' && file.extension !== 'canvas') return;
+
+        try {
+            const content = await this.app.vault.read(file);
+            let normalizedContent: string;
+
+            if (this.settings.lineEnding === 'lf') {
+                // 将 CRLF 替换为 LF
+                normalizedContent = content.replace(/\r\n/g, '\n');
+            } else {
+                // 先统一为 LF，再替换为 CRLF，避免出现 \r\r\n
+                normalizedContent = content.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+            }
+
+            if (normalizedContent !== content) {
+                this.isNormalizingLineEndings = true;
+                await this.app.vault.modify(file, normalizedContent);
+                this.isNormalizingLineEndings = false;
+            }
+        } catch (error) {
+            this.isNormalizingLineEndings = false;
+            console.error('Failed to normalize line endings:', error);
+        }
+    }
+
+    private setupLineEndingNormalizer(): void {
+        // 文件修改时规范化换行符
+        this.registerEvent(
+            this.app.vault.on('modify', async (file) => {
+                if (!(file instanceof TFile)) return;
+                await this.normalizeFileLineEndings(file);
+            })
+        );
+
+        // 文件打开时规范化换行符（仅在设置中启用时生效）
+        this.registerEvent(
+            this.app.workspace.on('file-open', async (file) => {
+                if (!file) return;
+                if (!this.settings.normalizeLineEndingOnOpen) return;
+                await this.normalizeFileLineEndings(file);
+            })
+        );
     }
 
     // Command to open settings tab

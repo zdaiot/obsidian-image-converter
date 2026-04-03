@@ -228,6 +228,10 @@ export interface TranslationStrings {
     'settings.showSizeNotification': string;
     'settings.showWindow': string;
     'settings.showWindowDesc': string;
+    'settings.lineEnding': string;
+    'settings.lineEndingDesc': string;
+    'settings.normalizeLineEndingOnOpen': string;
+    'settings.normalizeLineEndingOnOpenDesc': string;
     'settings.quicklyApplyPresets': string;
     'settings.defaultAlignmentForNew': string;
     'settings.defaultAlignmentForNewDesc': string;

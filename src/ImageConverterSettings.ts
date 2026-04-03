@@ -228,6 +228,9 @@ export interface ImageConverterSettings {
     captionBorder: string;
     captionMarginTop: string;
     captionAlignment: string;
+
+    lineEnding: "lf" | "crlf";
+    normalizeLineEndingOnOpen: boolean;
 }
 
 // --- Default Settings ---
@@ -424,7 +427,10 @@ export const DEFAULT_SETTINGS: ImageConverterSettings = {
     captionLetterSpacing: 'normal',
     captionBorder: 'none',
     captionMarginTop: '4px',
-    captionAlignment: 'center'
+    captionAlignment: 'center',
+
+    lineEnding: 'lf',
+    normalizeLineEndingOnOpen: false
 };
 
 // --- Settings Tab Class ---
@@ -638,6 +644,32 @@ new Notice(t('settings.notice.contextMenuEnabled'), 5000);
                     .setValue(this.plugin.settings.modalBehavior)
                     .onChange(async (value: ModalBehavior) => {
                         this.plugin.settings.modalBehavior = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        new Setting(containerEl)
+.setName(t('settings.lineEnding'))
+            .setDesc(t('settings.lineEndingDesc'))
+            .addDropdown((dropdown) => {
+                dropdown
+                    .addOption("lf", "LF (\\n)")
+                    .addOption("crlf", "CRLF (\\r\\n)")
+                    .setValue(this.plugin.settings.lineEnding)
+                    .onChange(async (value: "lf" | "crlf") => {
+                        this.plugin.settings.lineEnding = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        new Setting(containerEl)
+            .setName(t('settings.normalizeLineEndingOnOpen'))
+            .setDesc(t('settings.normalizeLineEndingOnOpenDesc'))
+            .addToggle((toggle) => {
+                toggle
+                    .setValue(this.plugin.settings.normalizeLineEndingOnOpen)
+                    .onChange(async (value: boolean) => {
+                        this.plugin.settings.normalizeLineEndingOnOpen = value;
                         await this.plugin.saveSettings();
                     });
             });
